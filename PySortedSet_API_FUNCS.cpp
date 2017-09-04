@@ -140,7 +140,20 @@ int PySortedSet_FINALIZE(PyObject* self)
 			PyObject** begin = PY_SORTED_SET_BEGIN(self);
 			PyObject** back_begin = PY_SORTED_SET_SORTED_END(self);
 			PyObject** end = PY_SORTED_SET_END(self);
-			std::stable_sort(back_begin, end, PySortedSet_LessThan);
+//			if(back_begin == end)
+//			{
+//				if(PyList_Sort((PyObject*)PY_SORTED_SET_GET_LIST(self)) != 0)
+//				{
+//					PyErr_BadInternalCall();
+//					return -1;
+//				}
+//			}
+//			else
+			{
+				// use std::stable_sort when we know that the front is already sorted.
+				// in this case we can elide a a linear search and possibly keep our cache slightly cleaner
+				std::stable_sort(back_begin, end, PySortedSet_LessThan);
+			}
 
 			auto pos = back_begin;
 			auto subrange_begin = pos;
@@ -209,7 +222,7 @@ Py_ssize_t PySortedSet_IndexOf(PyObject* self, PyObject* item)
 int PySortedSet_ERASE_INDEX(PyObject* self, Py_ssize_t index)
 {
 	if(PySequence_DelItem((PyObject*)PY_SORTED_SET_GET_LIST(self), index) != -1)
-		--(((PySortedSetObject*)self)->sorted_count_);
+		--PY_SORTED_SET_SORTED_COUNT(self);
 	else
 		return -1;
 	return 0;
@@ -284,6 +297,7 @@ int PySortedSet_LexCompare(PyObject* self, PyObject* other)
 	else
 		return -1;
 }
+
 
 
 

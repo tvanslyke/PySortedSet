@@ -75,5 +75,6 @@ PyAPI_FUNC(int) PySortedSet_LEX_COMPARE(PyObject* self, PyObject* other);
 
 
 
+
 PyTypeObject* _PySortedSet_TypeObject();
 #endif /* PYSORTEDSET_H_ */

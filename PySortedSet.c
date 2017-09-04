@@ -182,59 +182,36 @@ static PyObject * PySortedSet_rich_compare(PyObject* left, PyObject* right, int 
 		switch(op)
 		{
 	    case Py_EQ:
-	    	return Py_True;
+	    	Py_RETURN_TRUE;
 	        break;
 	    case Py_NE:
-	    	return Py_False;
+	    	Py_RETURN_FALSE;
 	        break;
 	    case Py_LE:
-	    	return Py_True;
+	    	Py_RETURN_TRUE;
 	        break;
 	    case Py_GE:
-	    	return Py_True;
+	    	Py_RETURN_TRUE;
 	        break;
 	    case Py_LT:
-	    	return Py_False;
+	    	Py_RETURN_FALSE;
 	        break;
 	    case Py_GT:
-	    	return Py_False;
+	    	Py_RETURN_FALSE;
+	    	break;
+	    default:
+	    	Py_RETURN_NOTIMPLEMENTED;
 	    	break;
 		}
 	}
-	if((PySortedSet_FINALIZE(left) == -1) || (PySortedSet_FINALIZE(right) == -1))
+	if((PySortedSet_FINALIZE(left) != 0) || (PySortedSet_FINALIZE(right) != 0))
 	{
 		PyErr_SetString(PyExc_RuntimeError, "Problem encountered while uniqifying sets (this is a bug).");
 		Py_RETURN_NOTIMPLEMENTED;
 	}
-	int result = 0;
-    switch (op)
-    {
-    case Py_EQ:
-    	result = (!PySortedSet_LEX_COMPARE(left, right)) && (!PySortedSet_LEX_COMPARE(right, left));
-        break;
-    case Py_NE:
-    	result = (PySortedSet_LEX_COMPARE(left, right)) || (PySortedSet_LEX_COMPARE(right, left));
-        break;
-    case Py_LE:
-    	result = !PySortedSet_LEX_COMPARE(right, left);
-        break;
-    case Py_GE:
-    	result = !PySortedSet_LEX_COMPARE(left, right);
-        break;
-    case Py_LT:
-    	result = PySortedSet_LEX_COMPARE(left, right);
-        break;
-    case Py_GT:
-    	result = PySortedSet_LEX_COMPARE(right, left);
-    	break;
-    default:
-    	Py_RETURN_NOTIMPLEMENTED;
-    	break;
-    }
-    if(result != -1)
-    	return PyBool_FromLong(result);
-    else
-    	Py_RETURN_NOTIMPLEMENTED;
+	fprintf(stderr, "HERRRREEE\n");
+	fflush(stderr);
+	return PyObject_RichCompare((PyObject*)PY_SORTED_SET_GET_LIST(left), (PyObject*)PY_SORTED_SET_GET_LIST(right), op);
 }
 
 
@@ -242,7 +219,7 @@ static PyObject * PySortedSet_iter(PyObject *self)
 {
 	if(PySortedSet_FINALIZE(self) == -1)
 	{
-		PyErr_SetString(PyExc_TypeError, "Error while creatomg iterator for SortedSet.");
+		PyErr_SetString(PyExc_TypeError, "Error while creating iterator for SortedSet.");
 		return NULL;
 	}
 	return PyObject_GetIter((PyObject*)(((PySortedSetObject*)self)->sorted_set_));
@@ -251,26 +228,41 @@ static PyObject * PySortedSet_iter(PyObject *self)
 
 static PyObject* PySortedSet_add(PyObject* self, PyObject* tup)
 {
+
 	PyObject* item = PySortedSet_OneArg(tup, "add");
 	if((!item) || (PySortedSet_ADD_ITEM(self, item) < 0))
 	{
 		PyErr_BadInternalCall();
 		return NULL;
 	}
-	return Py_None;
+
+	Py_RETURN_NONE;
 }
+
+
+
 static PyObject* PySortedSet_ClearSet(PySortedSetObject *self)
 {
+	if(PySortedSet_FINALIZE((PyObject*)self) != 0)
+	{
+		PyErr_BadInternalCall();
+		return NULL;
+	}
 	self->sorted_count_ = 0;
 	if(PySequence_DelSlice((PyObject*)PY_SORTED_SET_GET_LIST(self), 0, PY_SORTED_SET_SIZE(self)) < 0)
 	{
 		PyErr_BadInternalCall();
 		return NULL;
 	}
-	return Py_None;
+	Py_RETURN_NONE;
 }
 static PyObject* PySortedSet_copy(PyObject* self)
 {
+	if(PySortedSet_FINALIZE(self) != 0)
+	{
+		PyErr_BadInternalCall();
+		return NULL;
+	}
 	PySortedSetObject* cpy = (PySortedSetObject*)PySortedSet_new(self->ob_type, NULL, NULL);
 	if(cpy == NULL)
 	{
@@ -290,6 +282,11 @@ static PyObject* PySortedSet_copy(PyObject* self)
 
 static PyObject* PySortedSet_discard(PyObject* self, PyObject* tup)
 {
+	if(PySortedSet_FINALIZE(self) != 0)
+	{
+		PyErr_BadInternalCall();
+		return NULL;
+	}
 	PyObject* item = PySortedSet_OneArg(tup, "discard");
 	if(!item)
 	{
@@ -303,19 +300,29 @@ static PyObject* PySortedSet_discard(PyObject* self, PyObject* tup)
 	}
 
 	Py_ssize_t idx = PySortedSet_INDEX_OF(self, item);
-	if(idx >= PY_SORTED_SET_SIZE(self))
-		return Py_False;
+	if(idx >= PY_SORTED_SET_SIZE(self) || idx < 0)
+		Py_RETURN_FALSE;
 	else if(PySortedSet_Equal(PySortedSet_GET_ITEM(self, idx), item))
 	{
-		PySortedSet_ERASE_INDEX(self, idx);
-		return Py_True;
+		if(PySequence_DelItem((PyObject*)PY_SORTED_SET_GET_LIST(self), idx) != 0)
+		{
+			PyErr_BadInternalCall();
+			return NULL;
+		}
+		PY_SORTED_SET_SORTED_COUNT(self) = PY_SORTED_SET_SIZE(self);
+		Py_RETURN_TRUE;
 	}
 	else
-		return Py_False;
+		Py_RETURN_FALSE;
 }
 
 static PyObject* PySortedSet_difference(PyObject* self, PyObject* tup)
 {
+	if(PySortedSet_FINALIZE(self) != 0)
+	{
+		PyErr_BadInternalCall();
+		return NULL;
+	}
 	Py_ssize_t nargs = PyTuple_GET_SIZE(tup);
 	if(nargs < 1)
 	{
@@ -359,6 +366,25 @@ static PyObject* PySortedSet_difference(PyObject* self, PyObject* tup)
 
 }
 
+static PyObject* PySortedSet_difference_update(PyObject* self, PyObject* tup)
+{
+	// TODO: optimize this
+	PyObject* newset = PySortedSet_difference(self, tup);
+
+	if(!newset)
+	{
+		PyErr_BadInternalCall();
+		return NULL;
+	}
+	// move the temporary 'newset' into 'self'
+	Py_XDECREF(PY_SORTED_SET_GET_LIST(self));
+	PY_SORTED_SET_GET_LIST(self) = PY_SORTED_SET_GET_LIST(newset);
+	Py_XINCREF(PY_SORTED_SET_GET_LIST(self));
+	PY_SORTED_SET_SORTED_COUNT(self) = PY_SORTED_SET_SORTED_COUNT(newset);
+	Py_XDECREF(newset);
+	Py_RETURN_NONE;
+}
+
 PyObject * PySortedSet_SqGetItem(PyObject * self, Py_ssize_t index)
 {
 	if(PySortedSet_FINALIZE(self) != 0)
@@ -382,9 +408,12 @@ PyObject * PySortedSet_SqGetSlice(PyObject * self, Py_ssize_t i1, Py_ssize_t i2,
 int PySortedSet_SqDelItem(PyObject * self, Py_ssize_t i1, Py_ssize_t i2, Py_ssize_t index)
 {
 	if(PySortedSet_FINALIZE(self) != 0)
+	{
+		PyErr_BadInternalCall();
 		return -1;
+	}
 	int errcode = PySequence_DelItem((PyObject*)PY_SORTED_SET_GET_LIST(self), index);
-	if(errcode < 0)
+	if(errcode != 0)
 	{
 		return errcode;
 	}
@@ -397,9 +426,12 @@ int PySortedSet_SqDelItem(PyObject * self, Py_ssize_t i1, Py_ssize_t i2, Py_ssiz
 int PySortedSet_SqDelSlice(PyObject * self, Py_ssize_t i1, Py_ssize_t i2, Py_ssize_t index)
 {
 	if(PySortedSet_FINALIZE(self) != 0)
+	{
+		PyErr_BadInternalCall();
 		return -1;
+	}
 	int errcode = PySequence_DelSlice((PyObject*)PY_SORTED_SET_GET_LIST(self), i1, i2);
-	if(errcode < 0)
+	if(errcode != 0)
 	{
 		return errcode;
 	}
@@ -410,7 +442,52 @@ int PySortedSet_SqDelSlice(PyObject * self, Py_ssize_t i1, Py_ssize_t i2, Py_ssi
 	}
 }
 
+PyObject* PySortedSet_subscript(PyObject* self, PyObject* index)
+{
+	if(PySortedSet_FINALIZE(self) != 0)
+	{
+		PyErr_BadInternalCall();
+		return NULL;
+	}
+	return PyObject_GetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), index);
+}
 
+
+static int PySortedSet_assign_subscript(PyObject* self, PyObject* item, PyObject* value)
+{
+
+	if(PySortedSet_FINALIZE(self) != 0)
+	{
+		PyErr_BadInternalCall();
+		return -1;
+	}
+	// TODO:  Something more efficient than just changing 'sorted_count_'
+	if(PyIndex_Check(item))
+	{
+		Py_ssize_t idx = PyNumber_AsSsize_t(item, NULL);
+		if(idx < PY_SORTED_SET_SIZE(self) && idx >= 0)
+			PY_SORTED_SET_SORTED_COUNT(self) = idx;
+		return PyObject_SetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), item, value);
+	}
+	else if(PySlice_Check(item))
+	{
+		Py_ssize_t lower_bound = 0;
+		{ /* scope */
+			Py_ssize_t slc[4];
+			PySlice_GetIndicesEx((PySliceObject*)item, PY_SORTED_SET_SIZE(self), slc, slc + 1, slc + 2, slc + 4);
+			lower_bound = slc[0] < slc[1] ? slc[0] : slc[1];
+ 		}/* /scope */
+		PY_SORTED_SET_SORTED_COUNT(self) = lower_bound;
+		return PyObject_SetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), item, value);
+	}
+	else
+	{
+		int errcode = PyObject_SetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), item, value);
+		if(errcode != 0)
+			PY_SORTED_SET_SORTED_COUNT(self) = 0;
+		return errcode;
+	}
+}
 
 
 static PyMethodDef PySortedSet_methods[] = {
@@ -422,8 +499,11 @@ static PyMethodDef PySortedSet_methods[] = {
 	{"copy",  		(PyCFunction)(PySortedSet_copy),   			METH_NOARGS,  ""},
 	{"discard", 	(PyCFunction)(PySortedSet_discard), 		METH_VARARGS, ""},
 	{"difference", 	(PyCFunction)(PySortedSet_difference), 		METH_VARARGS, ""},
+	{"difference_update", 	(PyCFunction)(PySortedSet_difference_update), METH_VARARGS, ""},
 	{NULL}  /* Sentinel */
 };
+
+
 
 static PyMethodDef PySortedSet_module_methods[] = {{NULL}};
 
@@ -440,6 +520,20 @@ static PySequenceMethods sorted_set_as_sequence =
 	/* sq_contains */
 };
 
+
+static PyMappingMethods sorted_set_as_mapping =
+{
+	    (lenfunc)PySortedSet_SIZE,
+	    (binaryfunc)PySortedSet_subscript,
+	    (objobjargproc)PySortedSet_assign_subscript,
+};
+static PyMemberDef sorted_set_members[] =
+{
+	    {"sorted_set", T_OBJECT, offsetof(PySortedSetObject, sorted_set_), READONLY,
+	    		"List object used as internal storage.  (not always in a sorted state)"},
+	    {NULL}
+};
+
 static PyTypeObject PySortedSet_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
     "SortedSet",  					/* tp_name */
@@ -453,7 +547,7 @@ static PyTypeObject PySortedSet_Type = {
 	(reprfunc)PySortedSet_repr,     /* tp_repr */
     0,                         		/* tp_as_number */
 	&sorted_set_as_sequence,    	/* tp_as_sequence */
-    0,                        		/* tp_as_mapping */
+	&sorted_set_as_mapping,     		/* tp_as_mapping */
 	PyObject_HashNotImplemented,	/* tp_hash */
     0,                        		/* tp_call */
 	0, 								/* tp_str */
@@ -465,12 +559,12 @@ static PyTypeObject PySortedSet_Type = {
     "SortedSet",          		 /* tp_doc */
     (traverseproc)PySortedSet_traverse, /* tp_traverse */
 	(inquiry)PySortedSet_clear,     /* tp_clear */
-	0,/* PySortedSet_rich_compare */      /* tp_richcompare */
+	PySortedSet_rich_compare,/* PySortedSet_rich_compare */      /* tp_richcompare */
     0,                         		/* tp_weaklistoffset */
 	PySortedSet_iter,                 /*  tp_iter */
     0,                       		  /* tp_iternext */
 	PySortedSet_methods,       		  /* tp_methods */
-	0,       		  /* tp_members */
+	sorted_set_members,       		  /* tp_members */
     0,                        		 /* aaaa */
     0,                         /* tp_base */
     0,                         /* tp_dict */
