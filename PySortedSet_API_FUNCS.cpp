@@ -9,7 +9,7 @@ extern "C"{
 }
 #include <iostream>
 #include <algorithm>
-
+#include <vector>
 
 
 
@@ -301,7 +301,70 @@ int PySortedSet_LexCompare(PyObject* self, PyObject* other)
 
 
 
+PyAPI_FUNC(PyObject*) PySortedSet_MultiBuild(PyObject* sources, int (*predicate)(PySortedSetObject* dest, PyObject* element))
+{
+	if(not PyTuple_Check(sources))
+	{
+		std::cout << "HERE1" << std::endl;
+		PyErr_BadArgument();
+		return NULL;
+	}
+	Py_ssize_t len = PyTuple_GET_SIZE(sources);
+	std::vector<PyObject*> iter_objects;
+	try
+	{
+		iter_objects.reserve(len);
+	}
+	catch(const std::exception & e)
+	{
+		std::cout << "HERE2" << std::endl;
+		PyErr_BadInternalCall();
+		return NULL;
+	}
 
+	PyObject* current_item = sources;
+	for(Py_ssize_t i = 0; i < len; ++i)
+	{
+		current_item = PyTuple_GET_ITEM(sources, i);
+		if(not PyIter_Check(current_item))
+		{
+			PyErr_SetString(PyExc_TypeError, "Attempt to build set from non-iterable.");
+			return NULL;
+		}
+		else
+		{
+			iter_objects.push_back(current_item);
+		}
+	}
+	PySortedSetObject* set = (PySortedSetObject*)(PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL));
+	if(not set)
+	{
+		std::cout << "HERE4" << std::endl;
+		PyErr_BadInternalCall();
+		return NULL;
+	}
+
+	for(auto iter:iter_objects)
+	{
+		current_item = PyIter_Next(iter);
+		while(current_item)
+		{
+			if(predicate(set, current_item))
+			{
+				if(PySortedSet_ADD_ITEM((PyObject*)set, current_item) != 0)
+				{
+					std::cout << "HERE5" << std::endl;
+					PyErr_BadInternalCall();
+					Py_DECREF(set);
+					return NULL;
+				}
+			}
+			current_item = PyIter_Next(iter);
+		}
+	}
+
+	return (PyObject*)set;
+}
 
 
 

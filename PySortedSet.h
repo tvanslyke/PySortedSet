@@ -70,8 +70,9 @@ PyAPI_FUNC(int) PySortedSet_ERASE_INDEX(PyObject* self, Py_ssize_t index);
 PyAPI_FUNC(int) PySortedSet_LexCompare(PyObject* self, PyObject* other);
 PyAPI_FUNC(int) PySortedSet_LEX_COMPARE(PyObject* self, PyObject* other);
 
+PyAPI_FUNC(PyObject*) PySortedSet_new(PyTypeObject* tp, PyObject* args, PyObject* kwargs);
 
-
+PyAPI_FUNC(PyObject*) PySortedSet_MultiBuild(PyObject* sources, int (*predicate)(PySortedSetObject* dest, PyObject* element));
 
 
 
