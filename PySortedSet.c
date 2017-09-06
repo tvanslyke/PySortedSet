@@ -46,10 +46,14 @@ PyObject* PySortedSet_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 	if(!self)
 	{
 		PyErr_SetString(PyExc_SystemError, "PySortedSet.__new__() returned NULL. (this is a bug)");
-		PyErr_BadInternalCall();
 		return NULL;
 	}
 	self->sorted_set_ = (PyListObject*)PyList_New(0);
+	if(!(self->sorted_set_))
+	{
+		PyErr_SetString(PyExc_SystemError, "PySortedSet.__new__() returned NULL. (this is a bug)");
+		return NULL;
+	}
 	self->sorted_count_ = 0;
 	return (PyObject*)self;
 }
@@ -81,15 +85,13 @@ static int PySortedSet_init(PyObject* self, PyObject *args, PyObject *kwds)
 		}
 		else if(PyIter_Check(obj))
 		{
-			PyListObject* list = PY_SORTED_SET_GET_LIST(self);
 			PyObject* item = PyIter_Next(obj);
 			while(item)
 			{
-				PyList_Append((PyObject*)list, item);
+				PySortedSet_ADD_ITEM(self, item);
 				Py_XDECREF(item);
 			}
 			Py_XDECREF(obj);
-			PySortedSet_FINALIZE(self);
 		}
 		else
 		{
