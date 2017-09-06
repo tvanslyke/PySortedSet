@@ -156,20 +156,6 @@ int PySortedSet_contains(PyObject* set, PyObject* item)
 	return PySortedSet_Equal(PySortedSet_GET_ITEM(set, idx), item);
 }
 
-static int PySortedSet_traverse(PySortedSetObject *self, visitproc visit, void *arg)
-{
-	if(PySortedSet_Finalize((PyObject*)self) == -1)
-	{
-		PyErr_SetString(PyExc_RuntimeError, "Internal error encountered when finalizing SortedSet instance (this is a bug).");
-		return -1;
-	}
-	return PyList_Type.tp_traverse((PyObject*)(self->sorted_set_), visit, arg);
-}
-static int PySortedSet_clear(PySortedSetObject *self)
-{
-	self->sorted_count_ = 0;
-	return (&PyList_Type)->tp_clear((PyObject*)(self->sorted_set_));
-}
 
 
 
@@ -209,8 +195,6 @@ static PyObject * PySortedSet_rich_compare(PyObject* left, PyObject* right, int 
 		PyErr_SetString(PyExc_RuntimeError, "Problem encountered while uniqifying sets (this is a bug).");
 		Py_RETURN_NOTIMPLEMENTED;
 	}
-	fprintf(stderr, "HERRRREEE\n");
-	fflush(stderr);
 	return PyObject_RichCompare((PyObject*)PY_SORTED_SET_GET_LIST(left), (PyObject*)PY_SORTED_SET_GET_LIST(right), op);
 }
 
@@ -224,15 +208,7 @@ static PyObject * PySortedSet_iter(PyObject *self)
 	}
 	return PyObject_GetIter((PyObject*)(((PySortedSetObject*)self)->sorted_set_));
 }
-static PyObject * PySortedSet_iternext(PyObject *self)
-{
-	if(PySortedSet_FINALIZE(self) == -1)
-	{
-		PyErr_SetString(PyExc_TypeError, "Error while creating iterator for SortedSet.");
-		return NULL;
-	}
-	return PyObject_GetIter((PyObject*)(((PySortedSetObject*)self)->sorted_set_));
-}
+
 
 static PyObject* PySortedSet_add(PyObject* self, PyObject* tup)
 {
@@ -266,25 +242,22 @@ static PyObject* PySortedSet_ClearSet(PySortedSetObject *self)
 }
 static PyObject* PySortedSet_copy(PyObject* self)
 {
+	// even though we don't need to finalize the set to make a copy, doing this
+	// may make the list smaller which provides the opportunity to allocate less memory
+	// than if we did not finalize first.
+
 	if(PySortedSet_FINALIZE(self) != 0)
-	{
-		PyErr_BadInternalCall();
 		return NULL;
-	}
 	PySortedSetObject* cpy = (PySortedSetObject*)PySortedSet_new(self->ob_type, NULL, NULL);
 	if(cpy == NULL)
-	{
-		PyErr_BadInternalCall();
 		return NULL;
-	}
-	cpy->sorted_set_ = (PyListObject*)PySequence_List((PyObject*)PY_SORTED_SET_GET_LIST(self));
+	Py_ssize_t len = PyList_GET_SIZE(PY_SORTED_SET_GET_LIST(self));
+	cpy->sorted_set_ = (PyListObject*)PyList_GetSlice((PyObject*)PY_SORTED_SET_GET_LIST(self), 0, len);
+	
+	
 	if(!(cpy->sorted_set_))
-	{
-		PyErr_BadInternalCall();
-		Py_XDECREF(cpy);
 		return NULL;
-	}
-	cpy->sorted_count_ = ((PySortedSetObject*)self)->sorted_count_;
+	cpy->sorted_count_ = PY_SORTED_SET_SORTED_COUNT(self);
 	return (PyObject*)cpy;
 }
 
@@ -324,100 +297,162 @@ static PyObject* PySortedSet_discard(PyObject* self, PyObject* tup)
 		Py_RETURN_FALSE;
 }
 
-static PyObject* PySortedSet_difference(PyObject* self, PyObject* tup)
-{
-	if(PySortedSet_FINALIZE(self) != 0)
-	{
-		PyErr_BadInternalCall();
-		return NULL;
-	}
-	Py_ssize_t nargs = PyTuple_GET_SIZE(tup);
-	if(nargs < 1)
-	{
-		return PySortedSet_copy(self);
-	}
-	PyObject * diffset = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
-	PySortedSet_FINALIZE(self);
-	Py_ssize_t len = PY_SORTED_SET_SIZE(self);
-	if(len < 1)
-		return diffset;
-	for(Py_ssize_t j = 0; j < nargs; ++j)
-	{
-		if(!PySortedSet_Check(PyTuple_GET_ITEM(tup, j)))
-		{
-			PyErr_SetString(PyExc_TypeError, "SortedSet.difference() accepts only SortedSet instances.");
-			return NULL;
-		}
-	}
-	PyObject** elems = PY_SORTED_SET_GET_LIST(self)->ob_item;
-
-	// TODO:  This more efficiently
-	Py_ssize_t j = 0;
-	for(Py_ssize_t i = 0; i < len; ++i)
-	{
-		for(j = 0; j < nargs; ++j)
-		{
-			if(PySortedSet_contains(PyTuple_GET_ITEM(tup, j), elems[i]))
-			{
-				j = -1;
-				break;
-			}
-		}
-		if(j != -1 && (PySortedSet_ADD_ITEM(diffset, elems[i]) == -1))
-		{
-			PyErr_BadInternalCall();
-			Py_XDECREF(diffset);
-			return NULL;
-		}
-	}
-	return diffset;
-
-}
-
-static PyObject* PySortedSet_difference_update(PyObject* self, PyObject* tup)
-{
-	// TODO: optimize this
-	PyObject* newset = PySortedSet_difference(self, tup);
-
-	if(!newset)
-	{
-		PyErr_BadInternalCall();
-		return NULL;
-	}
-	// move the temporary 'newset' into 'self'
-	Py_XDECREF(PY_SORTED_SET_GET_LIST(self));
-	PY_SORTED_SET_GET_LIST(self) = PY_SORTED_SET_GET_LIST(newset);
-	Py_XINCREF(PY_SORTED_SET_GET_LIST(self));
-	PY_SORTED_SET_SORTED_COUNT(self) = PY_SORTED_SET_SORTED_COUNT(newset);
-	Py_XDECREF(newset);
-	Py_RETURN_NONE;
-}
 
 
 
 static PyObject* PySortedSet_intersection(PyObject* self, PyObject* tup)
 {
+	if(!PySortedSet_Check(self))
+	{
+		PyErr_SetString(PyExc_TypeError, "SortedSet.intersection() cannot be called on a non-SortedSet object.");
+		return NULL;
+	}
 	Py_ssize_t len = PyTuple_GET_SIZE(tup);
 	PyObject* packed_tup = PyTuple_New(len + 1);
 	if(!packed_tup)
 	{
 		return NULL;
 	}
+	Py_INCREF(self);
 	PyTuple_SET_ITEM(packed_tup, 0, self);
-
+	int self_in_args = 0;
+	PyObject* item;
 	for(size_t i = 0; i < len; ++i)
 	{
-		PyTuple_SET_ITEM(packed_tup, i + 1, PyTuple_GET_ITEM(tup, i));
+		item = PyTuple_GET_ITEM(tup, i);
+
+		if(PySortedSet_Check(item))
+		{
+			if(self == item)
+				_PyTuple_Resize(&packed_tup, (len--)); // shouldn't throw error when shrinking (right?)
+			else
+			{
+				Py_INCREF(item);	
+				PyTuple_SET_ITEM(packed_tup, i + 1, item);
+			}
+		}
+		else
+		{
+			PyObject* as_set = PySortedSet_FromIterable(item);
+			if((!as_set) || (PySortedSet_FINALIZE(as_set) != 0))
+			{
+				Py_DECREF(packed_tup);
+				Py_XDECREF(as_set);
+				return NULL;
+			}
+			Py_INCREF(as_set);
+			PyTuple_SET_ITEM(packed_tup, i + 1, as_set);
+			
+		}
 	}
 
-	PyObject* xset = PySortedSet_MultiBuild(packed_tup, (int (*)(PySortedSetObject*, PyObject*))PySortedSet_contains);
-	if(!xset)
+	return PySortedSet_Intersection(packed_tup);
+}
+static PyObject* PySortedSet_intersection_update(PyObject* self, PyObject* argtup)
+{
+        PyObject* interset = PySortedSet_intersection(self, argtup);
+        if(!interset)
+        {
+                return NULL;
+        }
+        Py_XDECREF((PyObject*)PY_SORTED_SET_GET_LIST(self));
+        PY_SORTED_SET_GET_LIST(self) = PY_SORTED_SET_GET_LIST(interset);
+        PY_SORTED_SET_SORTED_COUNT(self) = PY_SORTED_SET_SORTED_COUNT(interset);
+        Py_XINCREF((PyObject*)PY_SORTED_SET_GET_LIST(self));
+        Py_XDECREF(interset);
+        Py_RETURN_NONE;
+}
+
+
+static PyObject* PySortedSet_difference(PyObject* self, PyObject* tup)
+{
+        if(!PySortedSet_Check(self))
+        {
+                PyErr_SetString(PyExc_TypeError, "SortedSet.difference() cannot be called on a non-SortedSet object.");
+                return NULL;
+        }
+        Py_ssize_t len = PyTuple_GET_SIZE(tup);
+        PyObject* packed_tup = PyTuple_New(len + 1);
+        if(!packed_tup)
+        {
+                return NULL;
+        }
+	Py_INCREF(self);
+        PyTuple_SET_ITEM(packed_tup, 0, self);
+	int self_in_args = 0;
+	PyObject* item = NULL;
+        for(size_t i = 0; i < len; ++i)
+        {
+		item = PyTuple_GET_ITEM(tup, i);
+                if(PySortedSet_Check(item))
+                {
+			if(self == item)
+			{
+				self_in_args = 1;
+			}
+			else
+			{
+				Py_INCREF(PyTuple_GET_ITEM(tup, i));
+	                        PyTuple_SET_ITEM(packed_tup, i + 1, PyTuple_GET_ITEM(tup, i));
+			}
+                }
+                else
+                {
+                        PyObject* as_set = PySortedSet_FromIterable(item);
+                        if((!as_set) || (PySortedSet_FINALIZE(as_set) != 0))
+                        {
+                                Py_DECREF(packed_tup);
+				Py_XDECREF(as_set);
+                                return NULL;
+                        }
+			Py_INCREF(as_set);
+                        PyTuple_SET_ITEM(packed_tup, i + 1, as_set);
+                }
+        }
+	if(self_in_args)
+	{
+		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+	}
+        PyObject* result = PySortedSet_Difference(packed_tup);
+	Py_DECREF(packed_tup);
+	return result;
+}
+
+static PyObject* PySortedSet_difference_update(PyObject* self, PyObject* argtup)
+{
+	PyObject* diffset = PySortedSet_difference(self, argtup);
+	if(!diffset)
 	{
 		return NULL;
 	}
-	Py_DECREF(packed_tup);
-	return xset;
+	Py_XDECREF((PyObject*)PY_SORTED_SET_GET_LIST(self));
+	PY_SORTED_SET_GET_LIST(self) = PY_SORTED_SET_GET_LIST(diffset);
+	PY_SORTED_SET_SORTED_COUNT(self) = PY_SORTED_SET_SORTED_COUNT(diffset);
+	Py_XINCREF((PyObject*)PY_SORTED_SET_GET_LIST(self));
+	Py_XDECREF(diffset);
+	Py_RETURN_NONE;
 }
+
+
+static PyObject* PySortedSet_update(PyObject* self, PyObject* iter_tuple)
+{
+	Py_ssize_t len = PyTuple_GET_SIZE(iter_tuple);
+	PyObject* result = NULL;
+	
+	for(Py_ssize_t i = 0; i < len; ++i)
+	{
+		result = PySortedSet_UpdateFromIterable(self, PyTuple_GET_ITEM(iter_tuple, i));
+		if(result)
+		{
+			Py_DECREF(result);
+		}
+		else
+			return NULL;	
+	}
+	Py_RETURN_NONE;
+}
+
+
 
 PyObject * PySortedSet_SqGetItem(PyObject * self, Py_ssize_t index)
 {
@@ -527,7 +562,6 @@ static int PySortedSet_assign_subscript(PyObject* self, PyObject* item, PyObject
 
 
 
-
 static PyMethodDef PySortedSet_methods[] = {
    // {"name", (PyCFunction)Noddy_name, METH_NOARGS,
    //  "Return the name, combining the first and last name"
@@ -539,6 +573,8 @@ static PyMethodDef PySortedSet_methods[] = {
 	{"difference", 	(PyCFunction)(PySortedSet_difference), 		METH_VARARGS, ""},
 	{"difference_update", 	(PyCFunction)(PySortedSet_difference_update), METH_VARARGS, ""},
 	{"intersection", (PyCFunction)(PySortedSet_intersection),   METH_VARARGS, ""},
+	{"intersection_update", (PyCFunction)(PySortedSet_intersection_update),   METH_VARARGS, ""},
+	{"update", (PyCFunction)(PySortedSet_update) ,METH_VARARGS, ""},
 	{NULL}  /* Sentinel */
 };
 
@@ -589,18 +625,18 @@ static PyTypeObject PySortedSet_Type = {
 	&sorted_set_as_mapping,     		/* tp_as_mapping */
 	PyObject_HashNotImplemented,	/* tp_hash */
     0,                        		/* tp_call */
-	0, 								/* tp_str */
+    0, 								/* tp_str */
     0,                        	 	/* tp_getattro */
     0,                         		/* tp_setattro */
     0,                         		/* tp_as_buffer */
     Py_TPFLAGS_DEFAULT |
         Py_TPFLAGS_BASETYPE |
-		Py_TPFLAGS_HAVE_SEQUENCE_IN |
-		Py_TPFLAGS_HAVE_ITER |
-		Py_TPFLAGS_HAVE_RICHCOMPARE,   		/* tp_flags */
+	Py_TPFLAGS_HAVE_SEQUENCE_IN |
+	Py_TPFLAGS_HAVE_ITER |
+	Py_TPFLAGS_HAVE_RICHCOMPARE,   		/* tp_flags */
     "SortedSet",          		 /* tp_doc */
-    (traverseproc)PySortedSet_traverse, /* tp_traverse */
-	(inquiry)PySortedSet_clear,     /* tp_clear */
+    0, /* tp_traverse */
+	0,     /* tp_clear */
 	PySortedSet_rich_compare,/* PySortedSet_rich_compare */      /* tp_richcompare */
     0,                         		/* tp_weaklistoffset */
 	PySortedSet_iter,                 /*  tp_iter */
