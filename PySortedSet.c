@@ -455,14 +455,24 @@ static PyObject* PySortedSet_update(PyObject* self, PyObject* iter_tuple)
 }
 
 
+PyObject* PySortedSet_isdisjoint(PyObject* self, PyObject* other)
+{
+	if(PySortedSet_FINALIZE(self) != 0 || PySortedSet_FINALIZE(other) != 0)
+	{
+		
+	}
+}
+
+
+
 
 PyObject * PySortedSet_SqGetItem(PyObject * self, Py_ssize_t index)
 {
 	if(PySortedSet_FINALIZE(self) != 0)
 	{
-		PyErr_BadInternalCall();
 		return NULL;
 	}
+	
 	return PySequence_GetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), index);
 }
 
@@ -517,10 +527,45 @@ PyObject* PySortedSet_subscript(PyObject* self, PyObject* index)
 {
 	if(PySortedSet_FINALIZE(self) != 0)
 	{
-		PyErr_BadInternalCall();
 		return NULL;
 	}
-	return PyObject_GetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), index);
+	Py_ssize_t len = PY_SORTED_SET_SIZE(self);
+	if(PyIndex_Check(index))
+	{
+		Py_ssize_t idx = PyNumber_AsSsize_t(index, PyExc_IndexError);
+	        if (idx == -1 && PyErr_Occurred())
+			return NULL;
+		if (idx < 0)
+			idx += len;
+		if(idx >= len)
+		{
+			PyErr_SetString(PyExc_IndexError, "Index out of bounds with SortedSet instance.");
+			return NULL;
+		}
+		else
+		{
+			PY_SORTED_SET_SORTED_COUNT(self) = idx;
+			return PyList_GetItem(PY_SORTED_SET_GET_LIST(self), idx);
+		}
+	}
+	else if(PySlice_Check(index))
+	{
+		
+		Py_ssize_t lower_bound = 0;
+		{ /* scope */
+			Py_ssize_t slc[4];
+			PySlice_GetIndicesEx((PySliceObject*)index, PY_SORTED_SET_SIZE(self), slc, slc + 1, slc + 2, slc + 4);
+			lower_bound = slc[0] < slc[1] ? slc[0] : slc[1];
+ 		}/* /scope */
+		PyObject* elem = PyObject_GetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), index);
+		if(elem)
+			PY_SORTED_SET_SORTED_COUNT(self) = lower_bound;
+		return elem;
+	}
+	PyObject* elem = PyObject_GetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), index);
+	if(elem)
+		PY_SORTED_SET_SORTED_COUNT(self) = 0;
+	return elem;
 }
 
 
@@ -589,7 +634,7 @@ static PySequenceMethods sorted_set_as_sequence =
 	PySortedSet_SIZE,                   		/* sq_length */
     0,                                  		/* sq_concat */
     0,                                  		/* sq_repeat */
-	PySortedSet_SqGetItem,              		/* sq_item */
+	0, //PySortedSet_SqGetItem,              		/* sq_item */
 	(ssizessizeargfunc)PySortedSet_SqGetSlice,  /* sq_slice */
     0,                                  		/* sq_ass_item */
     0,                                  		/* sq_ass_slice */
@@ -601,7 +646,7 @@ static PySequenceMethods sorted_set_as_sequence =
 static PyMappingMethods sorted_set_as_mapping =
 {
 	    (lenfunc)PySortedSet_SIZE,
-	    (binaryfunc)PySortedSet_subscript,
+	    0, //(binaryfunc)PySortedSet_subscript,
 	    (objobjargproc)PySortedSet_assign_subscript,
 };
 static PyMemberDef sorted_set_members[] =

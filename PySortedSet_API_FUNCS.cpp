@@ -10,8 +10,14 @@ extern "C"{
 #include <iostream>
 #include <algorithm>
 #include <vector>
+#include <array>
 
 
+
+static PyObject* PySortedSet_Merge(PyObject* self)
+{
+	
+}
 
 static PySortedSetObject* PySortedSet_ThrowIfBadType(PyObject* self)
 {
@@ -134,8 +140,7 @@ int PySortedSet_FINALIZE(PyObject* self)
 				current_value = *pos;
 				stop = std::find_if(++pos, end, [&](auto item){ return PySortedSet_LessThan(current_value, item); });
 				end = std::rotate(pos, stop, end);
-			}	
-			
+			}
 
 			std::inplace_merge(begin, back_begin, end, PySortedSet_LessThan);
 			PyListObject* list = PY_SORTED_SET_GET_LIST(self);
@@ -494,6 +499,15 @@ PyAPI_FUNC(PyObject*) PySortedSet_FromIterable(PyObject* iterable)
 	// type checking is done there.
 	return PySortedSet_FROM_ITERABLE(iterable);
 }
+
+
+
+
+
+
+
+
+
 
 
 PyAPI_FUNC(PyObject*) PySortedSet_UpdateFromIterable(PyObject* self, PyObject* iterable)
