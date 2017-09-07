@@ -10,7 +10,7 @@ extern "C"{
 #include <iostream>
 #include <algorithm>
 #include <vector>
-#include <array>
+#include <tuple>
 
 
 
@@ -373,6 +373,8 @@ PyAPI_FUNC(PyObject*) PySortedSet_Intersection(PyObject* sources)
 		return (PyObject*)set;
 }
 
+
+
 PyAPI_FUNC(PyObject*) PySortedSet_Difference(PyObject* sources)
 {
         if(not PyTuple_Check(sources))
@@ -484,12 +486,63 @@ PyAPI_FUNC(PyObject*) PySortedSet_Difference(PyObject* sources)
                 return (PyObject*)set;
 
 }
+
+PyObject* PySortedSet_Union(PyObject* sources)
+{
+        if(not PyTuple_Check(sources))
+        {
+                PyErr_BadArgument();
+                return NULL;
+        }
+        Py_ssize_t len = PyTuple_GET_SIZE(sources);
+	
+        PyObject* iter = NULL;
+        Py_ssize_t i = 0;
+        PySortedSetObject* set = (PySortedSetObject*)(PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL));
+        if(not set)
+        {
+        	return NULL;
+	}
+        for(i = 0; i < len; ++i)
+        {
+	
+		iter = PyObject_GetIter(PyTuple_GET_ITEM(sources, i));
+                if(not iter)
+			return NULL;
+		else
+		{	
+			PyObject* value = PyIter_Next(iter);
+			if(value)
+			{
+				while(value)
+				{
+					PySortedSet_ADD_ITEM((PyObject*)set, value);
+					value = PyIter_Next(iter);
+				}
+				if(PySortedSet_FINALIZE((PyObject*)set) != 0)
+				{
+					Py_DECREF(set);
+					return NULL;	
+				}
+			}
+			Py_DECREF(iter);
+		}
+	}
+	return (PyObject*)set;
+	
+}
+
+
+
 PyAPI_FUNC(PyObject*) PySortedSet_FROM_ITERABLE(PyObject* iterable)
 {
 	PyObject* set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
 	if(not set)
 		return NULL;
-	return _PyList_Extend(PY_SORTED_SET_GET_LIST(set), iterable);
+	if(not _PyList_Extend(PY_SORTED_SET_GET_LIST(set), iterable))
+		return NULL;	
+	return set;
+	
 }
 
 
@@ -502,12 +555,141 @@ PyAPI_FUNC(PyObject*) PySortedSet_FromIterable(PyObject* iterable)
 
 
 
+int PySortedSet_Resort(PyObject* self)
+{
+	PyObject** begin = PY_SORTED_SET_BEGIN(self);
+	PyObject** back_begin = PY_SORTED_SET_SORTED_END(self);
+	PyObject** end = PY_SORTED_SET_END(self);
+	PyObject** pos = begin;
+	auto adj_comp_func = [&](PyObject* a, PyObject* b){ return not PySortedSet_LessThan(a, b); };	
+	pos = std::adjacent_find(begin, back_begin, adj_comp_func);
+	while(pos != back_begin)
+	{	
+		back_begin = std::rotate(pos, std::next(pos, 1), back_begin);
+		pos = std::adjacent_find(begin, back_begin, adj_comp_func);
+	}
+	PY_SORTED_SET_SORTED_COUNT(self) = std::distance(begin, back_begin);
+	if(PySortedSet_FINALIZE(self) != 0)
+	{
+		return -1;	
+	}
+	return 0;
+}
 
 
 
+static int PySortedSet_ArithInit(PyObject* self, PyObject* other,
+				PyObject** left_iter, PyObject** left_value,
+				PyObject** right_iter, PyObject** right_value)
+{
+	if(!PySortedSet_Check(self) or !PySortedSet_Check(other))
+	{
+		PyErr_SetString(PyExc_TypeError, "Attempt to perform SortedSet arithmetic on non SortedSet instances.");
+		return -1;
+	}
+	if(other == self)
+		return 1;	
+	
+	else if(PySortedSet_FINALIZE(self) != 0 || PySortedSet_FINALIZE(other) != 0)
+		return -1;
+
+	*left_iter = PyObject_GetIter(self);
+	*right_iter = PyObject_GetIter(other);
+	if(!(*left_iter) || !(*right_iter))
+	{
+		Py_XDECREF(*left_iter);
+		Py_XDECREF(*right_iter);
+		return -1;
+	}
+	*left_value = PyIter_Next(*left_iter);
+	*right_value = PyIter_Next(*right_iter);
+	return 0;		
+}
+
+PyObject* PySortedSet_arith_add(PyObject* self, PyObject* other)
+{
+	PyObject *left_iter, *left_value, *right_iter, *right_value;
+	int result = PySortedSet_ArithInit(self, other, &left_iter, &left_value, &right_iter, &right_value);
+	if(result < 0)
+		return NULL;
+	else if(result)	
+		return PySortedSet_copy(self);
+	std::vector<PyObject*> set_union;
+	try
+	{
+		set_union.reserve(PY_SORTED_SET_SIZE(self) + PY_SORTED_SET_SIZE(other));
+	}
+	catch(const std::exception & e)
+	{
+		PyErr_BadInternalCall();
+		return NULL;
+	}	
+        auto skip_iter = [&](PyObject*& value, PyObject* iter) 
+        {       
+		Py_DECREF(value);
+                value = PyIter_Next(iter);
+        };
+	auto advance_iter = [&](PyObject*& value, PyObject* iter)
+	{
+		PyObject* previous_value = value;
+		value = PyIter_Next(iter);
+		return previous_value;
+	};
+	if(left_value)
+	{
+		if(right_value)
+		{
+			if(PySortedSet_LessThan(left_value, right_value))
+				set_union.push_back(advance_iter(left_value, left_iter));
+			else
+				set_union.push_back(advance_iter(right_value, right_iter));
+		}
+		else
+			set_union.push_back(advance_iter(left_value, left_iter));
+	}
+	else if(right_value)
+		set_union.push_back(advance_iter(right_value, right_iter));
+	else
+		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+	
 
 
-
+	while(left_value and right_value)
+	{
+		if(PySortedSet_LessThan(left_value, right_value))
+		{
+			if(PySortedSet_LessThan(set_union.back(), left_value))
+				set_union.push_back(advance_iter(left_value, left_iter));
+			else
+				skip_iter(left_value, left_iter);
+		}
+		else if(PySortedSet_LessThan(right_value, left_value))
+		{
+			if(PySortedSet_LessThan(set_union.back(), right_value))
+				set_union.push_back(advance_iter(right_value, right_iter));
+			else
+				skip_iter(right_value, right_iter);
+			
+		}	
+		else
+			skip_iter(left_value, left_iter);
+		
+	}
+	PyObject* set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+	PyObject* list = PyList_New(Py_ssize_t(set_union.size()));
+	if(not (list and set))
+	{
+		Py_XDECREF(list);
+		Py_XDECREF(set);
+		std::for_each(set_union.begin(), set_union.end(), [](PyObject* obj){ Py_DECREF(obj); });
+		return NULL;
+	}
+	else
+		std::copy(set_union.begin(), set_union.end(), ((PyListObject*)list)->ob_item);
+	Py_DECREF((PyObject*)PY_SORTED_SET_GET_LIST(set));
+	PY_SORTED_SET_GET_LIST(set) = (PyListObject*)list;
+	return set;
+} 
 
 
 PyAPI_FUNC(PyObject*) PySortedSet_UpdateFromIterable(PyObject* self, PyObject* iterable)
