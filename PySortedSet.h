@@ -84,8 +84,16 @@ PyAPI_FUNC(PyObject*) PySortedSet_UpdateFromIterable(PyObject* self, PyObject* i
 PyAPI_FUNC(int) PySortedSet_Resort(PyObject* self);
 
 PyAPI_FUNC(PyObject*) PySortedSet_arith_add(PyObject* self, PyObject* other);
+PyAPI_FUNC(PyObject*) PySortedSet_arith_sub(PyObject* self, PyObject* other);
+
+PyAPI_FUNC(int) PySortedSet_ObjectIsImmutable(PyObject* obj);
 
 PyAPI_FUNC(PyObject*) PySortedSet_copy(PyObject* self);
 
-PyTypeObject* _PySortedSet_TypeObject();
+PyAPI_FUNC(PyObject*) PySortedSet_HandleSlice(PyObject* self, PyObject* slc);
+PyAPI_FUNC(PyObject*) PySortedSet_HandleIndex(PyObject* self, PyObject* idx);
+
+PyAPI_FUNC(int) PySortedSet_HandleIndexAssignment(PyObject* self, PyObject* idx, PyObject* value);
+
+PyTypeObject* _PySortedSet_TypeObject(void);
 #endif /* PYSORTEDSET_H_ */

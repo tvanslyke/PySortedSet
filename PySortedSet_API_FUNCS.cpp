@@ -7,6 +7,7 @@
 extern "C"{
 #include "PySortedSet.h"
 }
+#include <python2.7/longobject.h>
 #include <iostream>
 #include <algorithm>
 #include <vector>
@@ -14,10 +15,31 @@ extern "C"{
 
 
 
-static PyObject* PySortedSet_Merge(PyObject* self)
+static constexpr const size_t imm_type_count = 8;
+static std::array<PyTypeObject*, imm_type_count> init_immutable_type_array()
 {
-	
+	std::array<PyTypeObject*, imm_type_count> imm_types
+	{
+		&PyFrozenSet_Type,
+		&PyBytes_Type,
+		&PyBool_Type,
+		&PyUnicode_Type,
+		&PyLong_Type,
+		&PyInt_Type,
+		&PyFloat_Type,
+		&PyComplex_Type
+	};
+	std::sort(imm_types.begin(), imm_types.end());
+	return imm_types;
 }
+
+static bool PyTypeIsImmutable(PyTypeObject* typeobj)
+{
+	static const std::array<PyTypeObject*, imm_type_count> imm_types = init_immutable_type_array();
+	return std::binary_search(imm_types.begin(), imm_types.end(), typeobj);
+}
+
+
 
 static PySortedSetObject* PySortedSet_ThrowIfBadType(PyObject* self)
 {
@@ -32,6 +54,27 @@ static PySortedSetObject* PySortedSet_ThrowIfBadType(PyObject* self)
 }
 
 extern "C" {
+
+
+int PySortedSet_ObjectIsImmutable(PyObject* obj)
+{
+	bool is_immutable = PyTypeIsImmutable(obj->ob_type);
+	if(is_immutable)
+		return true;
+	else if(PyTuple_CheckExact(obj))
+	{
+		PyObject** tup_begin = (PyObject**)(((PyTupleObject*)obj)->ob_item);
+		PyObject** tup_end = (PyObject**)(((PyTupleObject*)obj)->ob_item + PyTuple_GET_SIZE(obj));
+		/* NOTE:  This can recurse infinitely if (if and only if)  a tuple is passed in that contains itself.  
+		 *	  This can't happen in Python userland, but perhaps a questionable C extension could generate
+		 *        such a situation.
+		 */
+		return std::find_if(tup_begin, tup_end, PySortedSet_ObjectIsImmutable) == tup_end; 
+	}
+	return false;
+}
+
+
 
 
 Py_ssize_t PySortedSet_SIZE(PyObject* self)
@@ -559,20 +602,54 @@ int PySortedSet_Resort(PyObject* self)
 {
 	PyObject** begin = PY_SORTED_SET_BEGIN(self);
 	PyObject** back_begin = PY_SORTED_SET_SORTED_END(self);
-	PyObject** end = PY_SORTED_SET_END(self);
 	PyObject** pos = begin;
-	auto adj_comp_func = [&](PyObject* a, PyObject* b){ return not PySortedSet_LessThan(a, b); };	
-	pos = std::adjacent_find(begin, back_begin, adj_comp_func);
-	while(pos != back_begin)
-	{	
+	auto adj_comp_func = [&](PyObject* a, PyObject* b){ return not PySortedSet_LessThan(a, b); };
+	auto find_disordered_position = [&](PyObject** posn)
+	{
+		// assumes 'pos' > 'begin'
+		while (1)
+		{
+			// only mutable objects will be out-of-order
+			posn = std::find_if(posn, back_begin, [&](PyObject* obj){ return not PySortedSet_ObjectIsImmutable(obj); });
+			if (posn < back_begin)
+				if (not PySortedSet_LessThan(posn[-1], posn[0]))
+					// 'posn[0]' is out-of-order with 'posn[-1]'
+					return posn;
+				else if ((posn + 1) < back_begin)
+					// 'posn[0]' may still be out-of-order with posn[1]  
+					if (PySortedSet_ObjectIsImmutable(posn[1]))
+						// we can elide an exra comparison if 'posn[1]' is immutable, which is (usually) cheap to check.
+						if (not PySortedSet_LessThan(posn[0], posn[1]))
+							// if the next item is immutable, we know for a fact that 'posn[0]' is the out-of-order element
+							return posn;
+						else 
+							// not out-of-order, proceed to next position
+							++posn;
+					else if (not PySortedSet_LessThan(posn[0], posn[1]))
+						// return 'posn' if 'posn[1]' belongs before 'posn[0]' but after 'posn[-1]'
+						return posn + (not PySortedSet_LessThan(posn[-1], posn[1]));
+					else 
+						// not out-of-order, proceed to next position
+						++posn;			
+				else 
+					// nothing else is out-of-order
+					return back_begin;
+			else 
+				// return immediately if posn == back_begin
+				return posn;
+		}
+	};
+	
+	pos = find_disordered_position(pos);
+	while(pos < back_begin)
+	{
 		back_begin = std::rotate(pos, std::next(pos, 1), back_begin);
-		pos = std::adjacent_find(begin, back_begin, adj_comp_func);
+		pos = find_disordered_position(pos);
 	}
 	PY_SORTED_SET_SORTED_COUNT(self) = std::distance(begin, back_begin);
 	if(PySortedSet_FINALIZE(self) != 0)
-	{
 		return -1;	
-	}
+	
 	return 0;
 }
 
@@ -606,90 +683,234 @@ static int PySortedSet_ArithInit(PyObject* self, PyObject* other,
 	return 0;		
 }
 
-PyObject* PySortedSet_arith_add(PyObject* self, PyObject* other)
+
+
+
+
+
+
+PyAPI_FUNC(PyObject*) PySortedSet_arith_add(PyObject* self, PyObject* other)
 {
-	PyObject *left_iter, *left_value, *right_iter, *right_value;
-	int result = PySortedSet_ArithInit(self, other, &left_iter, &left_value, &right_iter, &right_value);
-	if(result < 0)
+	
+	if(!PySortedSet_Check(self) or !PySortedSet_Check(other))
+	{
+		PyErr_SetString(PyExc_TypeError, "Attempt to perform SortedSet arithmetic on non SortedSet instances.");
 		return NULL;
-	else if(result)	
-		return PySortedSet_copy(self);
-	std::vector<PyObject*> set_union;
+	}
+	else if(self == other)	
+		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+	std::vector<PyObject*> set_diff;
 	try
 	{
-		set_union.reserve(PY_SORTED_SET_SIZE(self) + PY_SORTED_SET_SIZE(other));
+		set_diff.reserve(PY_SORTED_SET_SIZE(self) + PY_SORTED_SET_SIZE(other));
 	}
 	catch(const std::exception & e)
 	{
 		PyErr_BadInternalCall();
 		return NULL;
 	}	
-        auto skip_iter = [&](PyObject*& value, PyObject* iter) 
-        {       
-		Py_DECREF(value);
-                value = PyIter_Next(iter);
-        };
-	auto advance_iter = [&](PyObject*& value, PyObject* iter)
+  		
+	if(PySortedSet_FINALIZE(self) != 0 or PySortedSet_FINALIZE(other) != 0)
+		return NULL;
+	PyObject** lbegin = PY_SORTED_SET_BEGIN(self);
+	PyObject** lend = PY_SORTED_SET_END(self);
+	PyObject** rbegin = PY_SORTED_SET_BEGIN(other);
+	PyObject** rend = PY_SORTED_SET_END(other);
+	auto newref = [&](PyObject* obj){ Py_INCREF(obj); return obj;};
+	while(lbegin < lend  and rbegin < rend)
 	{
-		PyObject* previous_value = value;
-		value = PyIter_Next(iter);
-		return previous_value;
-	};
-	if(left_value)
-	{
-		if(right_value)
-		{
-			if(PySortedSet_LessThan(left_value, right_value))
-				set_union.push_back(advance_iter(left_value, left_iter));
-			else
-				set_union.push_back(advance_iter(right_value, right_iter));
-		}
-		else
-			set_union.push_back(advance_iter(left_value, left_iter));
-	}
-	else if(right_value)
-		set_union.push_back(advance_iter(right_value, right_iter));
-	else
-		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
-	
-
-
-	while(left_value and right_value)
-	{
-		if(PySortedSet_LessThan(left_value, right_value))
-		{
-			if(PySortedSet_LessThan(set_union.back(), left_value))
-				set_union.push_back(advance_iter(left_value, left_iter));
-			else
-				skip_iter(left_value, left_iter);
-		}
-		else if(PySortedSet_LessThan(right_value, left_value))
-		{
-			if(PySortedSet_LessThan(set_union.back(), right_value))
-				set_union.push_back(advance_iter(right_value, right_iter));
-			else
-				skip_iter(right_value, right_iter);
-			
-		}	
-		else
-			skip_iter(left_value, left_iter);
+		while(lbegin < lend and PySortedSet_LessThan(*lbegin, *rbegin))
+			set_diff.push_back(newref(*lbegin++));
 		
+		if(lbegin == lend) 
+			break;
+		else if(not PySortedSet_LessThan(*rbegin, *lbegin))
+		{
+			set_diff.push_back(newref(*lbegin++));
+			++rbegin;	
+		}
+		else
+			set_diff.push_back(newref(*rbegin++));
+	}
+	while(lbegin < lend)
+		set_diff.push_back(newref(*lbegin++));
+	if(rbegin < rend)
+	{
+		if(set_diff.size() and not PySortedSet_LessThan(set_diff.back(), *rbegin))
+			++rbegin;
+		while(rbegin < rend)
+			set_diff.push_back(newref(*rbegin++));
 	}
 	PyObject* set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
-	PyObject* list = PyList_New(Py_ssize_t(set_union.size()));
+	PyObject* list = PyList_New(Py_ssize_t(set_diff.size()));
 	if(not (list and set))
 	{
 		Py_XDECREF(list);
 		Py_XDECREF(set);
-		std::for_each(set_union.begin(), set_union.end(), [](PyObject* obj){ Py_DECREF(obj); });
 		return NULL;
 	}
 	else
-		std::copy(set_union.begin(), set_union.end(), ((PyListObject*)list)->ob_item);
+		std::copy(set_diff.begin(), set_diff.end(), ((PyListObject*)list)->ob_item);
+
 	Py_DECREF((PyObject*)PY_SORTED_SET_GET_LIST(set));
 	PY_SORTED_SET_GET_LIST(set) = (PyListObject*)list;
-	return set;
-} 
+	return set;	
+}
+
+
+
+
+
+PyAPI_FUNC(PyObject*) PySortedSet_arith_sub(PyObject* self, PyObject* other)
+{
+	
+	if(!PySortedSet_Check(self) or !PySortedSet_Check(other))
+	{
+		PyErr_SetString(PyExc_TypeError, "Attempt to perform SortedSet arithmetic on non SortedSet instances.");
+		return NULL;
+	}
+	else if(self == other)	
+		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+	std::vector<PyObject*> set_diff;
+	try
+	{
+		set_diff.reserve(PY_SORTED_SET_SIZE(self));
+	}
+	catch(const std::exception & e)
+	{
+		PyErr_BadInternalCall();
+		return NULL;
+	}	
+	
+	if(PySortedSet_FINALIZE(self) != 0 or PySortedSet_FINALIZE(other) != 0)
+		return NULL;
+	PyObject** lbegin = PY_SORTED_SET_BEGIN(self);
+	PyObject** lend = PY_SORTED_SET_END(self);
+	PyObject** rbegin = PY_SORTED_SET_BEGIN(other);
+	PyObject** rend = PY_SORTED_SET_END(other);
+	auto newref = [&](PyObject* obj){ Py_INCREF(obj); return obj;};
+	while(lbegin < lend and rbegin < rend)
+	{
+		while(lbegin < lend and PySortedSet_LessThan(*lbegin, *rbegin))
+			set_diff.push_back(newref(*lbegin++));
+		
+		if(lbegin < lend and not PySortedSet_LessThan(*rbegin, *lbegin))
+			++lbegin;
+		++rbegin;
+	}
+
+	while(lbegin < lend)
+		set_diff.push_back(newref(*lbegin++));
+	PyObject* set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+	PyObject* list = PyList_New(Py_ssize_t(set_diff.size()));
+	if(not (list and set))
+	{
+		Py_XDECREF(list);
+		Py_XDECREF(set);
+		return NULL;
+	}
+	else
+		std::copy(set_diff.begin(), set_diff.end(), ((PyListObject*)list)->ob_item);
+
+	Py_DECREF((PyObject*)PY_SORTED_SET_GET_LIST(set));
+	PY_SORTED_SET_GET_LIST(set) = (PyListObject*)list;
+	return set;	
+}
+
+
+
+
+
+/* 'self' should be finalized before calling this function. */
+PyAPI_FUNC(PyObject*) PySortedSet_HandleSlice(PyObject* self, PyObject* slc)
+{
+	Py_ssize_t len = PY_SORTED_SET_SIZE(self);
+	Py_ssize_t start, stop, step, slicelen;
+	int errcode = PySlice_GetIndicesEx((PySliceObject*)slc, len, &start, &stop, &step, &slicelen);
+	if(errcode != 0)
+		return NULL;
+	PyObject* listslc = PyList_New(slicelen);
+	if(not listslc)
+		return NULL;
+	
+	PyObject** begin = PY_SORTED_SET_BEGIN(self);
+	PyObject* tmp = NULL;
+	for(Py_ssize_t i = 0; i < slicelen; ++i)
+	{
+		tmp = begin[start + step * i];
+		Py_INCREF(tmp);
+		PyList_SET_ITEM(listslc, i, tmp);
+	}
+	PyObject** end = PY_SORTED_SET_END(self);
+	PyObject** pending_begin = begin;
+	PyObject** pending_end = begin;
+	Py_ssize_t slc_idx = 0;
+	
+	for(Py_ssize_t i = 0; i < slicelen; ++i)
+	{		
+		slc_idx = start + step * i;
+		tmp = begin[slc_idx];
+		if(not PySortedSet_ObjectIsImmutable(tmp))
+		{
+			pending_begin = std::rotate(pending_begin, pending_end, begin + slc_idx); 
+			pending_end = begin + slc_idx + 1;
+		}
+	}
+	end = std::rotate(pending_begin, pending_end, end);
+	PY_SORTED_SET_SORTED_COUNT(self) = std::distance(begin, end);
+	return listslc;
+}
+
+
+PyAPI_FUNC(PyObject*) PySortedSet_HandleIndex(PyObject* self, PyObject* idx)
+{
+	Py_ssize_t len = PY_SORTED_SET_SIZE(self);
+	Py_ssize_t index = PyNumber_AsSsize_t(idx, PyExc_IndexError);
+	if(index == -1 and PyErr_Occurred())
+		return NULL;
+	index += (index < 0) * len;
+	if(index < 0 or index >= len)
+	{
+		PyErr_SetString(PyExc_IndexError, "Index out-of-bounds on SortedSet() instance.");
+		return NULL;
+	}
+	PyObject* elem = PyList_GET_ITEM((PyObject*)PY_SORTED_SET_GET_LIST(self), index);
+	if(not PySortedSet_ObjectIsImmutable(elem))
+	{
+		PyObject** begin = PY_SORTED_SET_BEGIN(self);
+		PyObject** end = PY_SORTED_SET_END(self);
+		PY_SORTED_SET_SORTED_COUNT(self) = (std::rotate(begin + index, begin + index + 1, end) - begin);		
+	}
+	return elem;
+}
+
+
+
+PyAPI_FUNC(int) PySortedSet_HandleIndexAssignment(PyObject* self, PyObject* idx, PyObject* value)
+{
+        Py_ssize_t len = PY_SORTED_SET_SIZE(self);
+        Py_ssize_t index = PyNumber_AsSsize_t(idx, PyExc_IndexError);
+        if(index == -1 and PyErr_Occurred())
+                return -1;
+        index += (index < 0) * len;
+        if(index < 0 or index >= len)
+        {
+                PyErr_SetString(PyExc_IndexError, "Index out-of-bounds on SortedSet() instance.");
+                return -1;
+        }
+	
+	Py_XINCREF(value);	
+	int errcode = PyList_SetItem((PyObject*)PY_SORTED_SET_GET_LIST(self), index, value);
+	if(errcode != 0)
+		return errcode;
+	PyObject** begin = PY_SORTED_SET_BEGIN(self);
+	PyObject** end = PY_SORTED_SET_END(self);
+	Py_ssize_t last_item = (std::rotate(begin + index, begin + index + 1, end) - begin);
+	PY_SORTED_SET_SORTED_COUNT(self) = last_item;
+	return 0;
+}
+
+
 
 
 PyAPI_FUNC(PyObject*) PySortedSet_UpdateFromIterable(PyObject* self, PyObject* iterable)
