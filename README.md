@@ -7,7 +7,7 @@ While Python's built-in `set` uses hashing with open addressing to search for el
 * `SortedSet`s can, and do, offer random access.  The implementation is an array internally (rather than a binary search tree, which offers poor cache performance), and `SortedSet` instances can be accessed through indices and slices just like `list` objects.
 * `SortedSet`s are, as a rule, are slower to query than `set`s. (this is in part because of the O(1) complexity of hashing vs O(log(N))for binary search, but also because branching is particularly slow in Python).
 * The barrier to entry into a `SortedSet` is very low.  All that is required is that `cmp(my_object, something_else)` is defined for any given type (and by default, this is the case).
-* The implementation can be "broken" by mutating an object in a `SortedSet` from an external reference.  That is, you can break the ordering by changing the value of a set element without the set object knowing.  Since [https://mail.python.org/pipermail/tutor/2003-October/025932.html]("we're all adults here"), I won't stop you.  There is some functionality to deal with this quite easily.
+* The implementation can be "broken" by mutating an object in a `SortedSet` from an external reference.  That is, you can break the ordering by changing the value of a set element without the set object knowing.  Since [https://mail.python.org/pipermail/tutor/2003-October/025932.html](we're all adults here), I won't stop you.  There is some functionality to deal with this quite easily.
 * `SortedSet` is usually lighter on memory usage than `set`.  Sparse hash tables, by definition, over-allocate memory.  `SortedSet` behaves exactly like a `list` object of the same length.
 
 
