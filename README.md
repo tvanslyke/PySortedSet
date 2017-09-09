@@ -43,15 +43,16 @@ my_set.resort()
 print my_set
 ```
 ### Output:
+```
 SortedSet([1, 2, 3])
 SortedSet([1, 2, 3, [1, 2, 3], [1, 2, 4]])
 SortedSet([1, 2, 3, [1, 2, -100], [1, 2, 3]])
 SortedSet([1, 2, 3, [1, 2, -100], [-9, 2, 3]])
 SortedSet([1, 2, 3, [-9, 2, 3], [1, 2, -100]])
-
+```
 
 # Implementation
-`SortedSet` is just a wrapper around a `list` object under the hood.  `SortedSet` lazily sorts its internal `list` by using the `<`/`cmp()` operators to impose a strict, weak ordering.  Lets say we currently have a `SortedSet` with three elements:
+`SortedSet` is just a wrapper around a `list` object under the hood.  `SortedSet` lazily sorts its internal `list` by using the `cmp()` operator to impose a strict, weak ordering.  Lets say we currently have a `SortedSet` with three elements:
 ``` 
 my_set = SortedSet([1,2,3])
 ``` 
@@ -81,7 +82,7 @@ SortedSet:
 	internal_list: [-1, 1, 2, 3, 4, 20]
 	num_sorted: 6
 ```
-This means that calls to `.add()` and `.update()` are O(1) in the size of the set.  This has the consequence that many of the methods which trigger the sorting operation are or O(1) amortized.
+This means that calls to `.add()` and `.update()` are O(1) in the size of the set and that many of the methods which trigger the sorting operation are  O(1) amortized.
 
 Other implementation details will expanded on in the future:
 * Speed of some operations can be sped up significantly if the operation involves access to an immutable element (`str`, `float`, `bool`, sometimes `tuple`)
