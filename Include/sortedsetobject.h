@@ -9,5 +9,5 @@
 #include "PySortedSet_SequenceMethods.h"
 #include "PySortedSet_NumberMethods.h"
 #include "PySortedSet_NamedMethods.h"
-
+#include "PySortedSet_Internal.h"
 #endif /* SORTED_SET_OBJECT_H */

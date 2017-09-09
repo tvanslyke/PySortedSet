@@ -195,21 +195,35 @@ int PySortedSet_clear(PyObject* self)
 	return 0;
 }
 
+PyObject* PySortedSet_issubset(PyObject* self, PyObject* other);
+PyObject* PySortedSet_issuperset(PyObject* self, PyObject* other);
+PyObject* PySortedSet_remove(PyObject* self, PyObject* other);
+PyObject* PySortedSet_remove_index(PyObject* self, PyObject* index);
+PyObject* PySortedSet_symmetric_difference(PyObject* self, PyObject* other);
+PyObject* PySortedSet_symmetric_difference_update(PyObject* self, PyObject* other);
 static PyMethodDef PySortedSet_methods[] = {
-   // {"name", (PyCFunction)Noddy_name, METH_NOARGS,
-   //  "Return the name, combining the first and last name"
-   //},
-	{"add",   		(PyCFunction)(PySortedSet_add),   		METH_O, ""},
-	{"clear", 		(PyCFunction)(PySortedSet_ClearSet),		METH_NOARGS,  ""},
-	{"copy",  		(PyCFunction)(PySortedSet_copy),   		METH_NOARGS,  ""},
-	{"discard", 		(PyCFunction)(PySortedSet_discard), 		METH_O, ""},
-	{"difference", 		(PyCFunction)(PySortedSet_difference), 		METH_VARARGS, ""},
-	{"difference_update", 	(PyCFunction)(PySortedSet_difference_update), 	METH_VARARGS, ""},
-	{"intersection", 	(PyCFunction)(PySortedSet_intersection),	METH_VARARGS, ""},
-	{"intersection_update", (PyCFunction)(PySortedSet_intersection_update), METH_VARARGS, ""},
-	{"resort", 		(PyCFunction)(PySortedSet_resort),		METH_NOARGS,  ""},
-	{"union",		(PyCFunction)(PySortedSet_union), 		METH_VARARGS, ""},
-	{"update", 		(PyCFunction)(PySortedSet_update),		METH_VARARGS, ""},
+	
+	{"add",   			(PyCFunction)(PySortedSet_add),   			METH_O,       ""},
+	{"clear", 			(PyCFunction)(PySortedSet_ClearSet),			METH_NOARGS,  ""},
+	{"copy",  			(PyCFunction)(PySortedSet_copy),   			METH_NOARGS,  ""},
+	{"discard", 			(PyCFunction)(PySortedSet_discard), 			METH_O,       ""},
+	{"difference", 			(PyCFunction)(PySortedSet_difference), 			METH_VARARGS, ""},
+	{"difference_update", 		(PyCFunction)(PySortedSet_difference_update), 		METH_VARARGS, ""},
+	{"intersection", 		(PyCFunction)(PySortedSet_intersection),		METH_VARARGS, ""},
+	{"intersection_update", 	(PyCFunction)(PySortedSet_intersection_update), 	METH_VARARGS, ""},
+	
+	{"pop", 			(PyCFunction)(PySortedSet_pop), 			METH_VARARGS, ""},
+	{"isdisjoint", 			(PyCFunction)(PySortedSet_isdisjoint), 			METH_O, ""},
+	{"issubset", 			(PyCFunction)(PySortedSet_issubset), 			METH_O, ""},
+	{"issuperset", 			(PyCFunction)(PySortedSet_issuperset), 			METH_O, ""},
+	{"remove", 			(PyCFunction)(PySortedSet_remove), 			METH_O, ""},
+	{"remove_index", 		(PyCFunction)(PySortedSet_remove_index), 		METH_O, ""},
+	{"symmetric_difference", 	(PyCFunction)(PySortedSet_symmetric_difference), 	METH_O, ""},
+	{"symmetric_difference_update", (PyCFunction)(PySortedSet_symmetric_difference_update), METH_O, ""},
+	
+	{"resort", 			(PyCFunction)(PySortedSet_resort),			METH_NOARGS,  ""},
+	{"union",			(PyCFunction)(PySortedSet_union), 			METH_VARARGS, ""},
+	{"update", 			(PyCFunction)(PySortedSet_update),			METH_VARARGS, ""},
 	{NULL}  /* Sentinel */
 };
 
@@ -220,7 +234,7 @@ static PyMethodDef PySortedSet_module_methods[] = {{NULL}};
 static PyNumberMethods py_sorted_set_as_number = 
 {
      (binaryfunc)(PySortedSet_arith_add),//     binaryfunc nb_add;
-     (binaryfunc)(PySortedSet_arith_sub),//     binaryfunc nb_subtract;
+     (binaryfunc)(PySortedSet_arith_sub) ,//     binaryfunc nb_subtract;
      0,//     binaryfunc nb_multiply;
      0,//     binaryfunc nb_divide;
      0,//     binaryfunc nb_remainder;
@@ -233,9 +247,9 @@ static PyNumberMethods py_sorted_set_as_number =
      0,//     unaryfunc nb_invert;
      0,//     binaryfunc nb_lshift;
      0,//     binaryfunc nb_rshift;
-     0,//     binaryfunc nb_and;
-     0,//     binaryfunc nb_xor;
-     0,//     binaryfunc nb_or;
+     (binaryfunc)(PySortedSet_arith_sub), //     binaryfunc nb_and;
+     (binaryfunc)(PySortedSet_arith_xor),//     binaryfunc nb_xor;
+     (binaryfunc)(PySortedSet_arith_or),//     binaryfunc nb_or;
      0,//     coercion nb_coerce;       /* Used by the coerce() function */
      0,//     unaryfunc nb_int;
      0,//     unaryfunc nb_long;
@@ -244,17 +258,17 @@ static PyNumberMethods py_sorted_set_as_number =
      0,//     unaryfunc nb_hex;
 
      /* Added in release 2.0 */
-     0,//     binaryfunc nb_inplace_add;
-     0,//     binaryfunc nb_inplace_subtract;
+     PySortedSet_arith_add_eq,//     binaryfunc nb_inplace_add;
+     PySortedSet_arith_sub_eq,//     binaryfunc nb_inplace_subtract;
      0,//     binaryfunc nb_inplace_multiply;
      0,//     binaryfunc nb_inplace_divide;
      0,//     binaryfunc nb_inplace_remainder;
      0,//     ternaryfunc nb_inplace_power;
      0,//     binaryfunc nb_inplace_lshift;
      0,//     binaryfunc nb_inplace_rshift;
-     0,//     binaryfunc nb_inplace_and;
-     0,//     binaryfunc nb_inplace_xor;
-     0,//     binaryfunc nb_inplace_or;
+     (binaryfunc)(PySortedSet_arith_and),//     binaryfunc nb_inplace_and;
+     (binaryfunc)(PySortedSet_arith_xor),//     binaryfunc nb_inplace_xor;
+     (binaryfunc)(PySortedSet_arith_or),//     binaryfunc nb_inplace_or;
 
      /* Added in release 2.2 */
      0,//     binaryfunc nb_floor_divide;

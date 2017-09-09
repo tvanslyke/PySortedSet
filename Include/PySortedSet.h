@@ -27,7 +27,7 @@ inline int PySortedSet_Equal(PyObject* a, PyObject* b){return !PyObject_Compare(
 #define PY_SORTED_SET_BEGIN(set)      		((PyObject**)(PY_SORTED_SET_GET_LIST(set)->ob_item))
 #define PY_SORTED_SET_END(set)        		(PY_SORTED_SET_BEGIN(set) + PyList_GET_SIZE((PyObject*)PY_SORTED_SET_GET_LIST(set)))
 #define PY_SORTED_SET_SORTED_END(set) 		(PY_SORTED_SET_BEGIN(set) + ((PySortedSetObject*)(set))->sorted_count_)
-
+#define PY_SORTED_SET_GET_LIST_AS_OBJ(set)      ((PyObject*)PY_SORTED_SET_GET_LIST(set))
 
 #ifndef Py_RETURN_NOTIMPLEMENTED
 		#define Py_RETURN_NOTIMPLEMENTED \
@@ -75,9 +75,9 @@ PyAPI_FUNC(int) PySortedSet_LEX_COMPARE(PyObject* self, PyObject* other);
 
 PyAPI_FUNC(PyObject*) PySortedSet_new(PyTypeObject* tp, PyObject* args, PyObject* kwargs);
 
-PyAPI_FUNC(PyObject*) PySortedSet_Intersection(PyObject* sources);
-PyAPI_FUNC(PyObject*) PySortedSet_Difference(PyObject* sources);
-PyAPI_FUNC(PyObject*) PySortedSet_Union(PyObject* sources);
+PyAPI_FUNC(PyObject*) PySortedSet_MultiIntersection(PyObject* sources);
+PyAPI_FUNC(PyObject*) PySortedSet_MultiDifference(PyObject* sources);
+PyAPI_FUNC(PyObject*) PySortedSet_MultiUnion(PyObject* sources);
 
 
 PyAPI_FUNC(PyObject*) PySortedSet_FromIterable(PyObject* iterable);
@@ -91,8 +91,16 @@ PyAPI_FUNC(PyObject*) PySortedSet_arith_sub(PyObject* self, PyObject* other);
 
 PyAPI_FUNC(int) PySortedSet_ObjectIsImmutable(PyObject* obj);
 
-PyAPI_FUNC(PyObject*) PySortedSet_copy(PyObject* self);
 PyAPI_FUNC(int) PySortedSet_clear(PyObject* self);
+
+PyAPI_FUNC(int) PySortedSet_IsSubset(PyObject* self, PyObject* other);
+PyAPI_FUNC(PyObject*) PySortedSet_Union(PyObject* self, PyObject* other);
+PyAPI_FUNC(PyObject*) PySortedSet_Difference(PyObject* self, PyObject* other);
+PyAPI_FUNC(PyObject*) PySortedSet_SymmetricDifference(PyObject* self, PyObject* other);
+PyAPI_FUNC(PyObject*) PySortedSet_Intersection(PyObject* self, PyObject* other);
+PyAPI_FUNC(int) PySortedSet_HasIntersection(PyObject* self, PyObject* other);
+
+
 
 PyAPI_FUNC(PyObject*) PySortedSet_HandleSlice(PyObject* self, PyObject* slc);
 PyAPI_FUNC(PyObject*) PySortedSet_HandleIndex(PyObject* self, PyObject* idx);

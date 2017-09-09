@@ -129,7 +129,7 @@ PyObject* PySortedSet_intersection(PyObject* self, PyObject* tup)
 		}
 	}
 
-	return PySortedSet_Intersection(packed_tup);
+	return PySortedSet_MultiIntersection(packed_tup);
 }
 PyObject* PySortedSet_intersection_update(PyObject* self, PyObject* argtup)
 {
@@ -138,12 +138,8 @@ PyObject* PySortedSet_intersection_update(PyObject* self, PyObject* argtup)
         {
                 return NULL;
         }
-        Py_XDECREF((PyObject*)PY_SORTED_SET_GET_LIST(self));
-        PY_SORTED_SET_GET_LIST(self) = PY_SORTED_SET_GET_LIST(interset);
-        PY_SORTED_SET_SORTED_COUNT(self) = PY_SORTED_SET_SORTED_COUNT(interset);
-        Py_XINCREF((PyObject*)PY_SORTED_SET_GET_LIST(self));
-        Py_XDECREF(interset);
-        Py_RETURN_NONE;
+        PySortedSet_MOVE_ASSIGN(self, interset);
+	Py_RETURN_NONE;
 }
 
 
@@ -196,7 +192,7 @@ PyObject* PySortedSet_difference(PyObject* self, PyObject* tup)
 	{
 		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
 	}
-        PyObject* result = PySortedSet_Difference(packed_tup);
+        PyObject* result = PySortedSet_MultiDifference(packed_tup);
 	Py_DECREF(packed_tup);
 	return result;
 }
@@ -208,11 +204,7 @@ PyObject* PySortedSet_difference_update(PyObject* self, PyObject* argtup)
 	{
 		return NULL;
 	}
-	Py_XDECREF((PyObject*)PY_SORTED_SET_GET_LIST(self));
-	PY_SORTED_SET_GET_LIST(self) = PY_SORTED_SET_GET_LIST(diffset);
-	PY_SORTED_SET_SORTED_COUNT(self) = PY_SORTED_SET_SORTED_COUNT(diffset);
-	Py_XINCREF((PyObject*)PY_SORTED_SET_GET_LIST(self));
-	Py_XDECREF(diffset);
+	PySortedSet_MOVE_ASSIGN(self, diffset);
 	Py_RETURN_NONE;
 }
 
@@ -280,17 +272,25 @@ PyObject* PySortedSet_union(PyObject* self, PyObject* tup)
                         PyTuple_SET_ITEM(packed_tup, i + 1, as_set);
                 }
         }
-        PyObject* result = PySortedSet_Union(packed_tup);
+        PyObject* result = PySortedSet_MultiUnion(packed_tup);
 	Py_DECREF(packed_tup);
 	return result;
 }
 
 PyObject* PySortedSet_isdisjoint(PyObject* self, PyObject* other)
 {
-	if(PySortedSet_FINALIZE(self) != 0 || PySortedSet_FINALIZE(other) != 0)
+	PyObject* otherset = PySortedSet_AsFinalizedSortedSet(other);
+	if(!otherset)
+		return NULL;
+	if(PySortedSet_FINALIZE(self) != 0)
 	{
-		
+		Py_DECREF(otherset);
+		return NULL;	
 	}
+	if(PySortedSet_HasIntersection(self, other))
+		Py_RETURN_FALSE;
+	else
+		Py_RETURN_TRUE;
 }
 
 PyObject* PySortedSet_resort(PyObject* self)
@@ -300,5 +300,127 @@ PyObject* PySortedSet_resort(PyObject* self)
 		return NULL;
 	Py_RETURN_NONE;
 }
+
+
+
+PyObject* PySortedSet_pop(PyObject* self, PyObject* args)
+{
+	if(PySortedSet_FINALIZE(self) != 0)
+		return NULL;
+	
+	Py_ssize_t len = PY_SORTED_SET_SIZE(self);
+	if(!len)
+	{
+		PyErr_SetString(PyExc_IndexError, "Attempt to pop() from empty SortedSet instance.");
+		return NULL;
+	}
+	Py_ssize_t idx = len - 1;
+	if(PyArg_ParseTuple(args, "|n", &idx) != 0)
+		return NULL;
+	idx -= (idx < 0) * len;
+	if(idx < 0 || idx >= len)
+	{
+		PyErr_SetString(PyExc_IndexError, "Index out of bounds in SortedSet.pop().");
+		return NULL;
+	}
+	PyObject* popped = PySortedSet_GET_ITEM(self, idx);
+	Py_INCREF(popped);
+	if(PySequence_DelItem(PY_SORTED_SET_GET_LIST(self), idx) != 0)
+	{
+		Py_XDECREF(popped);
+		return NULL;
+	}
+	PY_SORTED_SET_SORTED_COUNT(self) -= 1;
+	return popped;
+}
+
+PyObject* PySortedSet_issubset(PyObject* self, PyObject* other)
+{
+	if(PySortedSet_FINALIZE(self) != 0)
+		return NULL;
+	PyObject* otherset = PySortedSet_AsFinalizedSortedSet(other);
+	if(!otherset)
+		return NULL;
+	if(!PySortedSet_FINALIZE(otherset))
+	{
+		Py_XDECREF(otherset);
+		return NULL;
+	}
+	int result = PySortedSet_IsSubset(self, otherset);
+	Py_DECREF(otherset);
+	if(result)
+		Py_RETURN_TRUE;
+	else
+		Py_RETURN_FALSE;
+}
+PyObject* PySortedSet_issuperset(PyObject* self, PyObject* other)
+{
+	if(PySortedSet_FINALIZE(self) != 0)
+		return NULL;
+	PyObject* otherset = PySortedSet_AsFinalizedSortedSet(other);
+	if(!otherset)
+		return NULL;
+	if(!PySortedSet_FINALIZE(otherset))
+	{
+		Py_XDECREF(otherset);
+		return NULL;
+	}
+	int result = PySortedSet_IsSubset(otherset, self);
+	Py_DECREF(otherset);
+	if(result)
+		Py_RETURN_TRUE;
+	else
+		Py_RETURN_FALSE;
+}
+
+PyObject* PySortedSet_remove_index(PyObject* self, PyObject* index)
+{	
+	if(PySortedSet_FINALIZE(self) != 0)
+		return NULL;
+	Py_ssize_t idx = 0;
+	if(PySortedSet_NumberToIndex(self, index, &idx) != 0)
+		return NULL;
+	if(PySortedSet_ERASE_INDEX(self, idx) != 0)
+		return NULL;
+	Py_RETURN_NONE;
+}
+PyObject* PySortedSet_remove(PyObject* self, PyObject* other)
+{
+	if(PySortedSet_FINALIZE(self) != 0)
+		return NULL;
+	Py_ssize_t idx = PySortedSet_INDEX_OF(self, other);
+	if(idx >= PY_SORTED_SET_SIZE(self) || !PySortedSet_Equal(PySortedSet_GET_ITEM(self, idx), other))
+	{
+		PyErr_SetString(PyExc_KeyError, "Element not in set in call to SortedSet.remove().");
+		return NULL;
+	}
+	Py_RETURN_NONE;
+	
+}
+PyObject* PySortedSet_symmetric_difference(PyObject* self, PyObject* other)
+{
+	if(PySortedSet_FINALIZE(self) != 0)
+		return NULL;
+	other = PySortedSet_AsFinalizedSortedSet(other);
+	if(!other)
+		return NULL;	
+	
+	PyObject* resultant_set = PySortedSet_SymmetricDifference(self, other);
+	Py_DECREF(other);
+	return resultant_set;
+
+}
+PyObject* PySortedSet_symmetric_difference_update(PyObject* self, PyObject* other)
+{
+	PyObject* symdiff = PySortedSet_symmetric_difference(self, other);
+	if(!symdiff)
+		return NULL;
+	PySortedSet_MOVE_ASSIGN(self, symdiff);
+	Py_RETURN_NONE;
+}
+
+
+
+
 
 

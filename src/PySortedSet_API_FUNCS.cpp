@@ -9,6 +9,7 @@ extern "C"{
 }
 
 #include <iostream>
+#include <iterator>
 #include <algorithm>
 #include <vector>
 #include <tuple>
@@ -315,7 +316,7 @@ int PySortedSet_LexCompare(PyObject* self, PyObject* other)
 
 
 
-PyAPI_FUNC(PyObject*) PySortedSet_Intersection(PyObject* sources)
+PyAPI_FUNC(PyObject*) PySortedSet_MultiIntersection(PyObject* sources)
 {
 	if(not PyTuple_Check(sources))
 	{
@@ -418,7 +419,7 @@ PyAPI_FUNC(PyObject*) PySortedSet_Intersection(PyObject* sources)
 
 
 
-PyAPI_FUNC(PyObject*) PySortedSet_Difference(PyObject* sources)
+PyAPI_FUNC(PyObject*) PySortedSet_MultiDifference(PyObject* sources)
 {
         if(not PyTuple_Check(sources))
         {
@@ -530,7 +531,7 @@ PyAPI_FUNC(PyObject*) PySortedSet_Difference(PyObject* sources)
 
 }
 
-PyObject* PySortedSet_Union(PyObject* sources)
+PyObject* PySortedSet_MultiUnion(PyObject* sources)
 {
         if(not PyTuple_Check(sources))
         {
@@ -689,133 +690,178 @@ static int PySortedSet_ArithInit(PyObject* self, PyObject* other,
 
 
 
-PyAPI_FUNC(PyObject*) PySortedSet_arith_add(PyObject* self, PyObject* other)
+
+
+
+int PySortedSet_IsSubset(PyObject* self, PyObject* other)
 {
-	
-	if(!PySortedSet_Check(self) or !PySortedSet_Check(other))
-	{
-		PyErr_SetString(PyExc_TypeError, "Attempt to perform SortedSet arithmetic on non SortedSet instances.");
-		return NULL;
-	}
-	else if(self == other)	
-		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
-	std::vector<PyObject*> set_diff;
-	try
-	{
-		set_diff.reserve(PY_SORTED_SET_SIZE(self) + PY_SORTED_SET_SIZE(other));
-	}
-	catch(const std::exception & e)
-	{
-		PyErr_BadInternalCall();
-		return NULL;
-	}	
-  		
-	if(PySortedSet_FINALIZE(self) != 0 or PySortedSet_FINALIZE(other) != 0)
-		return NULL;
 	PyObject** lbegin = PY_SORTED_SET_BEGIN(self);
 	PyObject** lend = PY_SORTED_SET_END(self);
 	PyObject** rbegin = PY_SORTED_SET_BEGIN(other);
 	PyObject** rend = PY_SORTED_SET_END(other);
-	auto newref = [&](PyObject* obj){ Py_INCREF(obj); return obj;};
-	while(lbegin < lend  and rbegin < rend)
+	return std::includes(lbegin, lend, rbegin, rend, PySortedSet_LessThan);
+}
+
+
+
+
+PyObject* PySortedSet_Union(PyObject* self, PyObject* other)
+{
+	PyObject* resultant_set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+       	if(!resultant_set)
+		return NULL;
+	Py_ssize_t reserve_size = PY_SORTED_SET_SIZE(self) + PY_SORTED_SET_SIZE(other);
+
+	PyObject** lbegin = PY_SORTED_SET_BEGIN(self);
+	PyObject** lend = PY_SORTED_SET_END(self);
+	PyObject** rbegin = PY_SORTED_SET_BEGIN(other);
+	PyObject** rend = PY_SORTED_SET_END(other);
+	
+	PyObject* list = PyList_New(reserve_size);
+	if(!list)
 	{
-		while(lbegin < lend and PySortedSet_LessThan(*lbegin, *rbegin))
-			set_diff.push_back(newref(*lbegin++));
-		
-		if(lbegin == lend) 
-			break;
-		else if(not PySortedSet_LessThan(*rbegin, *lbegin))
-		{
-			set_diff.push_back(newref(*lbegin++));
-			++rbegin;	
-		}
-		else
-			set_diff.push_back(newref(*rbegin++));
-	}
-	while(lbegin < lend)
-		set_diff.push_back(newref(*lbegin++));
-	if(rbegin < rend)
-	{
-		if(set_diff.size() and not PySortedSet_LessThan(set_diff.back(), *rbegin))
-			++rbegin;
-		while(rbegin < rend)
-			set_diff.push_back(newref(*rbegin++));
-	}
-	PyObject* set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
-	PyObject* list = PyList_New(Py_ssize_t(set_diff.size()));
-	if(not (list and set))
-	{
-		Py_XDECREF(list);
-		Py_XDECREF(set);
+		Py_DECREF(resultant_set);
 		return NULL;
 	}
-	else
-		std::copy(set_diff.begin(), set_diff.end(), ((PyListObject*)list)->ob_item);
-
-	Py_DECREF((PyObject*)PY_SORTED_SET_GET_LIST(set));
-	PY_SORTED_SET_GET_LIST(set) = (PyListObject*)list;
-	return set;	
+	auto & listlen = ((PyListObject*)(list))->ob_size;
+	PyObject** listitems = _PyList_ITEMS(list);
+	listlen = std::set_union(lbegin, lend, rbegin, rend, listitems, PySortedSet_LessThan) - listitems;
+	std::for_each(listitems, listitems + listlen, [](PyObject* obj){Py_INCREF(obj);});
+	PySortedSet_MOVE_ASSIGN_LIST(resultant_set, list);
+	PY_SORTED_SET_SORTED_COUNT(resultant_set) = listlen;
+	return resultant_set;
 }
 
 
 
 
 
-PyAPI_FUNC(PyObject*) PySortedSet_arith_sub(PyObject* self, PyObject* other)
+
+
+
+
+PyObject* PySortedSet_Difference(PyObject* self, PyObject* other)
 {
-	
-	if(!PySortedSet_Check(self) or !PySortedSet_Check(other))
-	{
-		PyErr_SetString(PyExc_TypeError, "Attempt to perform SortedSet arithmetic on non SortedSet instances.");
+	PyObject* resultant_set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+       	if(!resultant_set)
 		return NULL;
-	}
-	else if(self == other)	
-		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
-	std::vector<PyObject*> set_diff;
-	try
-	{
-		set_diff.reserve(PY_SORTED_SET_SIZE(self));
-	}
-	catch(const std::exception & e)
-	{
-		PyErr_BadInternalCall();
-		return NULL;
-	}	
-	
-	if(PySortedSet_FINALIZE(self) != 0 or PySortedSet_FINALIZE(other) != 0)
-		return NULL;
+	Py_ssize_t reserve_size = PY_SORTED_SET_SIZE(self);
+
 	PyObject** lbegin = PY_SORTED_SET_BEGIN(self);
 	PyObject** lend = PY_SORTED_SET_END(self);
 	PyObject** rbegin = PY_SORTED_SET_BEGIN(other);
 	PyObject** rend = PY_SORTED_SET_END(other);
-	auto newref = [&](PyObject* obj){ Py_INCREF(obj); return obj;};
-	while(lbegin < lend and rbegin < rend)
+	
+	PyObject* list = PyList_New(reserve_size);
+	if(!list)
 	{
-		while(lbegin < lend and PySortedSet_LessThan(*lbegin, *rbegin))
-			set_diff.push_back(newref(*lbegin++));
-		
-		if(lbegin < lend and not PySortedSet_LessThan(*rbegin, *lbegin))
-			++lbegin;
-		++rbegin;
-	}
-
-	while(lbegin < lend)
-		set_diff.push_back(newref(*lbegin++));
-	PyObject* set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
-	PyObject* list = PyList_New(Py_ssize_t(set_diff.size()));
-	if(not (list and set))
-	{
-		Py_XDECREF(list);
-		Py_XDECREF(set);
+		Py_DECREF(resultant_set);
 		return NULL;
 	}
-	else
-		std::copy(set_diff.begin(), set_diff.end(), ((PyListObject*)list)->ob_item);
-
-	Py_DECREF((PyObject*)PY_SORTED_SET_GET_LIST(set));
-	PY_SORTED_SET_GET_LIST(set) = (PyListObject*)list;
-	return set;	
+	auto & listlen = ((PyListObject*)(list))->ob_size;
+	PyObject** listitems = _PyList_ITEMS(list);
+	listlen = std::set_difference(lbegin, lend, rbegin, rend, listitems, PySortedSet_LessThan) - listitems;
+	std::for_each(listitems, listitems + listlen, [](PyObject* obj){Py_INCREF(obj);});
+	PySortedSet_MOVE_ASSIGN_LIST(resultant_set, list);
+	PY_SORTED_SET_SORTED_COUNT(resultant_set) = listlen;
+	return resultant_set;
 }
+
+
+
+PyObject* PySortedSet_SymmetricDifference(PyObject* self, PyObject* other)
+{
+	PyObject* resultant_set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+       	if(!resultant_set)
+		return NULL;
+	Py_ssize_t reserve_size = PY_SORTED_SET_SIZE(self) + PY_SORTED_SET_SIZE(other);
+
+	PyObject** lbegin = PY_SORTED_SET_BEGIN(self);
+	PyObject** lend = PY_SORTED_SET_END(self);
+	PyObject** rbegin = PY_SORTED_SET_BEGIN(other);
+	PyObject** rend = PY_SORTED_SET_END(other);
+	
+	PyObject* list = PyList_New(reserve_size);
+	if(!list)
+	{
+		Py_DECREF(resultant_set);
+		return NULL;
+	}
+	auto & listlen = ((PyListObject*)(list))->ob_size;
+	PyObject** listitems = _PyList_ITEMS(list);
+	listlen = std::set_symmetric_difference(lbegin, lend, rbegin, rend, listitems, PySortedSet_LessThan) - listitems;
+	std::for_each(listitems, listitems + listlen, [](PyObject* obj){Py_INCREF(obj);});
+	PySortedSet_MOVE_ASSIGN_LIST(resultant_set, list);
+	PY_SORTED_SET_SORTED_COUNT(resultant_set) = listlen;
+	return resultant_set;
+}
+
+
+PyAPI_FUNC(PyObject*) PySortedSet_Intersection(PyObject* self, PyObject* other)
+{
+
+	PyObject* resultant_set = PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+       	if(!resultant_set)
+		return NULL;
+	Py_ssize_t reserve_size = std::min(PY_SORTED_SET_SIZE(self), PY_SORTED_SET_SIZE(other));
+
+	PyObject** lbegin = PY_SORTED_SET_BEGIN(self);
+	PyObject** lend = PY_SORTED_SET_END(self);
+	PyObject** rbegin = PY_SORTED_SET_BEGIN(other);
+	PyObject** rend = PY_SORTED_SET_END(other);
+	
+	PyObject* list = PyList_New(reserve_size);
+	if(!list)
+	{
+		Py_DECREF(resultant_set);
+		return NULL;
+	}
+	auto & listlen = ((PyListObject*)(list))->ob_size;
+	PyObject** listitems = _PyList_ITEMS(list);
+	listlen = std::set_intersection(lbegin, lend, rbegin, rend, listitems, PySortedSet_LessThan) - listitems;
+	std::for_each(listitems, listitems + listlen, [](PyObject* obj){Py_INCREF(obj);});
+	PySortedSet_MOVE_ASSIGN_LIST(resultant_set, list);
+	PY_SORTED_SET_SORTED_COUNT(resultant_set) = listlen;
+	return resultant_set;
+}
+
+
+
+
+PyAPI_FUNC(int) PySortedSet_HasIntersection(PyObject* self, PyObject* other)
+{
+	PyObject** lpos = PY_SORTED_SET_BEGIN(self);
+	PyObject** lend = PY_SORTED_SET_END(self);
+	PyObject** rpos = PY_SORTED_SET_BEGIN(other);
+	PyObject** rend = PY_SORTED_SET_END(other);
+	if(not (std::distance(lpos, lend) and std::distance(rpos, rend)))
+		return false;
+
+	if(PySortedSet_LessThan(*rpos, *lpos))
+	{
+		std::swap(lpos, rpos);
+		std::swap(lend, rend);
+	}
+
+	while(lpos < lend and rpos < rend)
+	{
+		lpos = std::lower_bound(lpos, lend, *rpos, PySortedSet_LessThan);
+		if(lpos == lend)
+			return false;
+		else if(not PySortedSet_LessThan(*rpos, *lpos))
+			return true;
+		rpos = std::lower_bound(rpos, rend, *lpos, PySortedSet_LessThan);
+		if(rpos == rend)
+			return false;
+		else if(not PySortedSet_LessThan(*lpos, *rpos))
+			return true;
+	}
+	return false;
+	
+}
+
+
+
 
 
 
