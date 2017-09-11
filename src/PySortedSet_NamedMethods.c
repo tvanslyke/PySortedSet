@@ -150,61 +150,49 @@ PyObject* PySortedSet_difference(PyObject* self, PyObject* tup)
                 PyErr_SetString(PyExc_TypeError, "SortedSet.difference() cannot be called on a non-SortedSet object.");
                 return NULL;
         }
-        Py_ssize_t len = PyTuple_GET_SIZE(tup);
-        PyObject* packed_tup = PyTuple_New(len + 1);
-        if(!packed_tup)
-        {
-                return NULL;
-        }
-	Py_INCREF(self);
-        PyTuple_SET_ITEM(packed_tup, 0, self);
-	int self_in_args = 0;
-	PyObject* item = NULL;
-        for(size_t i = 0; i < len; ++i)
-        {
-		item = PyTuple_GET_ITEM(tup, i);
-                if(PySortedSet_Check(item))
-                {
-			if(self == item)
-			{
-				self_in_args = 1;
-			}
-			else
-			{
-				Py_INCREF(PyTuple_GET_ITEM(tup, i));
-	                        PyTuple_SET_ITEM(packed_tup, i + 1, PyTuple_GET_ITEM(tup, i));
-			}
-                }
-                else
-                {
-                        PyObject* as_set = PySortedSet_FromIterable(item);
-                        if((!as_set) || (PySortedSet_FINALIZE(as_set) != 0))
-                        {
-                                Py_DECREF(packed_tup);
-				Py_XDECREF(as_set);
-                                return NULL;
-                        }
-			Py_INCREF(as_set);
-                        PyTuple_SET_ITEM(packed_tup, i + 1, as_set);
-                }
-        }
-	if(self_in_args)
+	PyObject* cpy = PySortedSet_copy(self);
+	if(!cpy)
+		return NULL;
+	PyObject* result = PySortedSet_difference_update(cpy, tup);
+	if(!result)
 	{
-		return PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL);
+		Py_DECREF(cpy);
+		return NULL;
 	}
-        PyObject* result = PySortedSet_MultiDifference(packed_tup);
-	Py_DECREF(packed_tup);
-	return result;
+	Py_DECREF(result);
+	return cpy;
 }
 
 PyObject* PySortedSet_difference_update(PyObject* self, PyObject* argtup)
 {
-	PyObject* diffset = PySortedSet_difference(self, argtup);
-	if(!diffset)
+        if(!PySortedSet_Check(self))
+        {
+                PyErr_SetString(PyExc_TypeError, "SortedSet.difference_update() cannot be called on a non-SortedSet object.");
+                return NULL;
+        }
+	if(!PySortedSet_FINALIZE(self))
+		return NULL;
+	Py_ssize_t argcount = PyTuple_GET_SIZE(argtup);
+	PyObject* as_sets = PyTuple_New(PyTuple_GET_SIZE(argtup));
+	if(!as_sets)
+		return NULL;
+	PyObject* as_set = NULL;
+	for(Py_ssize_t i = 0; i < as_sets; ++i)
 	{
+		as_set = PySortedSet_AsFinalizedSortedSet(PyTuple_GET_ITEM(argtup, i));
+		if(!as_set)
+		{
+			Py_DECREF(as_sets);
+			return NULL;
+		}
+		PyTuple_SET_ITEM(as_sets, i, as_set);
+	}
+	if(PySortedSet_MultiDifferenceUpdate(argtup) != 0)
+	{
+		Py_DECREF(as_sets);	
 		return NULL;
 	}
-	PySortedSet_MOVE_ASSIGN(self, diffset);
+	Py_DECREF(as_sets);
 	Py_RETURN_NONE;
 }
 
@@ -386,15 +374,13 @@ PyObject* PySortedSet_remove_index(PyObject* self, PyObject* index)
 }
 PyObject* PySortedSet_remove(PyObject* self, PyObject* other)
 {
-	if(PySortedSet_FINALIZE(self) != 0)
+	PyObject* discard_result = PySortedSet_discard(self, other);
+	if(!discard_result)
 		return NULL;
-	Py_ssize_t idx = PySortedSet_INDEX_OF(self, other);
-	if(idx >= PY_SORTED_SET_SIZE(self) || !PySortedSet_Equal(PySortedSet_GET_ITEM(self, idx), other))
-	{
-		PyErr_SetString(PyExc_KeyError, "Element not in set in call to SortedSet.remove().");
-		return NULL;
-	}
-	Py_RETURN_NONE;
+	else if(discard_result == Py_True)
+		Py_RETURN_NONE;
+	PyErr_SetString(PyExc_KeyError, "Requested key not found in call to SortedSet.remove().");
+	return NULL;
 	
 }
 PyObject* PySortedSet_symmetric_difference(PyObject* self, PyObject* other)
