@@ -276,43 +276,6 @@ int PySortedSet_Erase(PyObject* self, PyObject* item)
 	else
 		return -1;
 }
-int PySortedSet_LEX_COMPARE(PyObject* self, PyObject* other)
-{
-	if(PySortedSet_FINALIZE(self) == -1)
-	{
-		PyErr_SetString(PyExc_TypeError, "Problem encountered while trying to compare SortedSet instances.");
-		return -1;
-	}
-	else if(PySortedSet_FINALIZE(other) == -1)
-	{
-		PyErr_SetString(PyExc_TypeError, "Problem encountered while trying to compare SortedSet instances.");
-		return -1;
-	}
-	try
-	{
-		return std::lexicographical_compare(PY_SORTED_SET_BEGIN(self), PY_SORTED_SET_END(self),
-										  PY_SORTED_SET_BEGIN(other), PY_SORTED_SET_END(other),
-										  PySortedSet_Equal);
-	}
-	catch(const std::exception & e)
-	{
-		PyErr_SetString(PyExc_RuntimeError, e.what());
-		return -1;
-	}
-}
-int PySortedSet_LexCompare(PyObject* self, PyObject* other)
-{
-	if(not other)
-	{
-		PyErr_BadArgument();
-		return -1;
-	}
-	if(self and PySortedSet_ThrowIfBadType(self) and other)
-		return PySortedSet_LEX_COMPARE(self, other);
-	else
-		return -1;
-}
-
 
 
 
@@ -419,115 +382,46 @@ PyAPI_FUNC(PyObject*) PySortedSet_MultiIntersection(PyObject* sources)
 
 
 
-PyAPI_FUNC(PyObject*) PySortedSet_MultiDifference(PyObject* sources)
+PyAPI_FUNC(int) PySortedSet_MultiDifferenceUpdate(PyObject* self, PyObject* others)
 {
-        if(not PyTuple_Check(sources))
-        {
-                PyErr_BadArgument();
-                return NULL;
-        }
-        Py_ssize_t len = PyTuple_GET_SIZE(sources);
-        std::vector<std::pair<PyObject*, PyObject*>> iters;
-        try
-        {
-                iters.reserve(len);
-        }
-        catch(const std::exception & e)
-        {
-                PyErr_BadInternalCall();
-                return NULL;
-        }
-	auto sort_iters = [&]()
+	std::vector<std::pair<PyObject**, PyObject**>> search_bounds;
+	try
 	{
-		std::stable_sort(iters.begin(), iters.end(), [&](const auto & a, const auto & b){ return PySortedSet_LessThan(a.second, b.second);});
-	};
-	auto iter_pair_next = [](auto & iter_pair){ iter_pair.second = PyIter_Next(iter_pair.first);};
-        PyObject* current_item = sources;
-        PyObject* min_item = NULL;
-        Py_ssize_t i = 0;
-        PySortedSetObject* set = (PySortedSetObject*)(PySortedSet_new(_PySortedSet_TypeObject(), NULL, NULL));
-        if(not set)
-        {
-                PyErr_BadInternalCall();
-                goto set_difference_return_proc;
-        }
-
-        for(i = 0; i < len; ++i)
-        {
-                current_item = PyTuple_GET_ITEM(sources, i);
-                if(not (current_item->ob_type->tp_iter))
-                {
-                        PyErr_SetString(PyExc_TypeError, "Attempt to build set from non-iterable object");
-                        goto set_difference_return_proc;
-                }
-                else
-                {
-			iters.emplace_back();
-                        iters.back().first = PyObject_GetIter(current_item);
-                        if(not iters.back().first)
-                        {
-                                PyErr_BadInternalCall();
-                                goto set_difference_return_proc;
-                        }
-                        iters.back().second = PyIter_Next(iters.back().first);
-                        if(not iters.back().second)
-                        {
-				Py_DECREF(iters.back().first);
-				iters.pop_back();
-                        }
-                }
-        }
-        while(iters.size())
-        {
-		sort_iters();
-		min_item = iters.front().second;
-		auto next_largest = std::find_if(iters.begin() + 1, iters.end(),
-						 [&](const auto& iter_pair){ return PySortedSet_LessThan(min_item, iter_pair.second); });
-		Py_ssize_t count = std::distance(iters.begin(), next_largest);
-		if(count > 1)
+		search_bounds.reserve(PyTuple_GET_SIZE(others));
+		for(Py_ssize_t i = 0; i < PyTuple_GET_SIZE(others); ++i)
+			search_bounds.emplace_back(PY_SORTED_SET_BEGIN(PyTuple_GET_ITEM(others, i)), 
+				       		   PY_SORTED_SET_END(PyTuple_GET_ITEM(others, i))); 
+	}
+	catch(const std::exception& e)
+	{
+		PyErr_BadInternalCall();
+		return -1;
+	}
+	PyObject** pos = PY_SORTED_SET_BEGIN(self);
+	PyObject** end = PY_SORTED_SET_END(self);
+	bool found = false;
+	while(pos < end and search_bounds.size())
+	{	
+		found = false;
+		for(Py_ssize_t i = 0; i < search_bounds.size(); ++i)
 		{
-			std::for_each(iters.begin(), next_largest, iter_pair_next);
-			for(auto it = iters.begin(); it < next_largest; ++it)
-			{
-				if(not it->second)
-				{
-					it = iters.erase(it);
-					--count;
-					next_largest = std::next(iters.begin(), count);
-				}
-			}
+			search_bounds[i].first = std::lower_bound(search_bounds[i].first, search_bounds[i].second, *pos, PySortedSet_LessThan);
+			if(search_bounds[i].first == search_bounds[i].second)
+				search_bounds.erase(search_bounds.begin() + i);
+			else
+				found = found or (not PySortedSet_LessThan(*pos, *(search_bounds[i].first))); 
 		}
-		else
+		if(found)
 		{
-			int errcode = PySortedSet_ADD_ITEM((PyObject*)set, (PyObject*)min_item);
-			// TODO:  remove later
-			Py_INCREF(min_item);
-			if(errcode != 0)
-			{
-				PyErr_BadInternalCall();
-				Py_XDECREF(set);
-				set = NULL;
-				goto set_difference_return_proc;
-			}
-			iter_pair_next(iters.front());
-			if(not iters.front().second)
-			{
-				iters.erase(iters.begin());
-			}
+			end = std::rotate(pos, pos + 1, end);
+			PY_SORTED_SET_SORTED_COUNT(self) -= 1;
 		}
-        }
-
-
-
-
-
-        set_difference_return_proc:
-                for(auto & iter:iters)
-                {
-			Py_XDECREF(iter.first);
-			Py_XDECREF(iter.second);
-		}
-                return (PyObject*)set;
+		else 
+			++pos;
+	}
+	if(PySequence_DelSlice(PY_SORTED_SET_GET_LIST_AS_OBJ(self), PY_SORTED_SET_SORTED_COUNT(self), PY_SORTED_SET_SIZE(self)) != 0)
+		return -1;
+	return 0;
 
 }
 
