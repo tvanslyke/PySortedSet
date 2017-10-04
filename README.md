@@ -11,11 +11,12 @@ While Python's built-in `set` uses hashing with open addressing to search for el
 * `SortedSet` is usually lighter on memory usage than `set`.  Sparse hash tables, by definition, over-allocate memory.  `SortedSet` behaves exactly like a `list` object of the same length.
 
 
-Overall, `SortedSet` is a (almost certainly - I haven't *actually* measured) slower, but more flexible alternative to Python's built-in `set`.  If it helps you write better code, awesome!
+Overall, `SortedSet` is a (almost certainly - I haven't *actually* measured) slower but more flexible alternative to Python's built-in `set`.  If it helps you write better code, awesome!
 
 # Demo
 The following example shows some of the functionality:
 ```
+from SortedSet import SortedSet as Set
 # you can create a sorted set just like a normal 'set()' object
 my_set = Set([1,2,3])
 print my_set
@@ -39,7 +40,7 @@ print my_set
 
 # now, "we're all adults here", so rather than disallowing mutable objects, you can fix
 # any issues that you create by calling the .resort() method
-my_set.resort()
+my_set.resort()a
 print my_set
 ```
 ### Output:
